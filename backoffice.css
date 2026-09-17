@@ -1,0 +1,226 @@
+/* ==========================================================================
+   後台共用樣式 —— admin.html 與 manager.html 共用
+   ========================================================================== */
+* { box-sizing: border-box; }
+body {
+  font-family: 'Segoe UI', 'Microsoft JhengHei', sans-serif;
+  background-color: #f4f6f9;
+  margin: 0;
+  color: #2c3e50;
+}
+
+/* ---------- 登入閘門 ---------- */
+.gate {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.gate-card {
+  width: 100%;
+  max-width: 380px;
+  background: #fff;
+  padding: 30px;
+  border-radius: 10px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.08);
+}
+.gate-card h1 { margin: 0 0 4px; font-size: 20px; }
+.gate-card .sub { color: #7f8c8d; font-size: 13px; margin-bottom: 20px; }
+.gate-error {
+  background: #fdecea;
+  border-left: 4px solid #e74c3c;
+  color: #c0392b;
+  padding: 10px 12px;
+  border-radius: 4px;
+  font-size: 13px;
+  margin-bottom: 14px;
+  white-space: pre-wrap;
+}
+.gate-advanced { margin-top: 14px; font-size: 12px; color: #7f8c8d; }
+.gate-advanced summary { cursor: pointer; }
+
+/* ---------- 版面 ---------- */
+.app { display: none; }
+.app.ready { display: block; }
+
+.sidebar {
+  width: 230px;
+  position: fixed;
+  top: 0; bottom: 0; left: 0;
+  background: #2c3e50;
+  padding-top: 18px;
+  overflow-y: auto;
+}
+.sidebar .brand { color: #ecf0f1; padding: 0 16px 14px; font-weight: bold; font-size: 15px; }
+.sidebar .whoami {
+  color: #95a5a6;
+  padding: 0 16px 16px;
+  font-size: 12px;
+  border-bottom: 1px solid #3d566e;
+  margin-bottom: 10px;
+  line-height: 1.6;
+}
+.sidebar .badge {
+  display: inline-block;
+  background: #16a085;
+  color: #fff;
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+.sidebar .badge.admin     { background: #e67e22; }
+.sidebar .badge.finance   { background: #d35400; }
+.sidebar .badge.warehouse { background: #8e44ad; }
+.sidebar .badge.logistics { background: #2980b9; }
+.sidebar a {
+  display: block;
+  padding: 13px 16px;
+  color: #ecf0f1;
+  text-decoration: none;
+  cursor: pointer;
+  border-left: 4px solid transparent;
+  font-size: 14px;
+}
+.sidebar a:hover, .sidebar a.active { background: #34495e; border-left-color: #2ecc71; }
+.sidebar .logout {
+  margin: 16px;
+  padding: 9px;
+  text-align: center;
+  background: #c0392b;
+  border-radius: 4px;
+  border-left: none;
+}
+.sidebar .logout:hover { background: #a93226; border-left-color: transparent; }
+
+.main-content {
+  margin-left: 250px;
+  padding: 24px;
+}
+.panel {
+  background: #fff;
+  padding: 24px;
+  border-radius: 8px;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.05);
+  margin-bottom: 20px;
+}
+.tab-panel { display: none; }
+.tab-panel.active { display: block; }
+h2 { margin-top: 0; font-size: 18px; }
+h3 { font-size: 15px; margin-bottom: 10px; }
+
+/* ---------- 表單 ---------- */
+.form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; }
+.form-group { margin-bottom: 14px; }
+label { display: block; margin-bottom: 5px; font-weight: bold; font-size: 13px; }
+input, textarea, select {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid #ccd1d9;
+  border-radius: 4px;
+  font-size: 14px;
+  font-family: inherit;
+  background: #fff;
+  color: #2c3e50;
+}
+input:focus, textarea:focus, select:focus { outline: 2px solid #3498db; outline-offset: -1px; }
+textarea { min-height: 70px; resize: vertical; }
+.hint { font-size: 11px; color: #95a5a6; margin-top: 4px; }
+
+button {
+  padding: 9px 16px;
+  background: #2ecc71;
+  border: none;
+  color: white;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: bold;
+  font-size: 14px;
+  font-family: inherit;
+}
+button:hover { background: #27ae60; }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+button.secondary { background: #7f8c8d; }
+button.secondary:hover { background: #6c7a7d; }
+button.danger { background: #e74c3c; }
+button.danger:hover { background: #c0392b; }
+button.small { padding: 4px 10px; font-size: 12px; }
+.btn-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+
+/* ---------- 表格 ---------- */
+table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 13px; }
+th, td { border: 1px solid #e4e7eb; padding: 9px 10px; text-align: left; vertical-align: top; }
+th { background: #f2f4f7; font-size: 12px; white-space: nowrap; }
+tbody tr:hover { background: #fafbfc; }
+.num { text-align: right; white-space: nowrap; }
+.muted { color: #95a5a6; }
+.detail-row td { background: #fbfcfc; }
+
+.tag {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: 10px;
+  font-size: 11px;
+  color: #fff;
+  white-space: nowrap;
+}
+/* 訂單履約狀態 */
+.tag.awaiting_shipment { background: #8e44ad; }
+.tag.shipped   { background: #3498db; }
+.tag.completed { background: #27ae60; }
+.tag.cancelled { background: #e74c3c; }
+/* 付款狀態（pending/paid 同時也是舊制的訂單狀態值） */
+.tag.pending   { background: #f39c12; }
+.tag.paid      { background: #2ecc71; }
+/* 角色 */
+.tag.customer  { background: #7f8c8d; }
+.tag.manager   { background: #16a085; }
+.tag.finance   { background: #d35400; }
+.tag.warehouse { background: #8e44ad; }
+.tag.logistics { background: #2980b9; }
+.tag.admin     { background: #e67e22; }
+/* 帳號啟用狀態 */
+.tag.active    { background: #27ae60; }
+.tag.suspended { background: #c0392b; }
+
+/* ---------- 分頁 ---------- */
+.pager { display: flex; gap: 8px; align-items: center; margin-top: 14px; flex-wrap: wrap; }
+.pager button { background: #ecf0f1; color: #2c3e50; padding: 6px 12px; font-size: 13px; }
+.pager button:hover:not(:disabled) { background: #d6dbdf; }
+.pager .info { font-size: 13px; color: #7f8c8d; }
+
+/* ---------- 提示訊息 ---------- */
+.notice { padding: 10px 12px; border-radius: 4px; font-size: 13px; margin-bottom: 12px; white-space: pre-wrap; }
+.notice.ok   { background: #eafaf1; border-left: 4px solid #2ecc71; color: #1e8449; }
+.notice.err  { background: #fdecea; border-left: 4px solid #e74c3c; color: #c0392b; }
+.notice.info { background: #eef5fc; border-left: 4px solid #3498db; color: #21618c; }
+.empty { padding: 30px; text-align: center; color: #95a5a6; }
+
+/* ---------- 客服中心 ---------- */
+.chat-container { display: flex; height: 460px; border: 1px solid #e4e7eb; border-radius: 6px; overflow: hidden; }
+.room-list { width: 34%; border-right: 1px solid #e4e7eb; overflow-y: auto; background: #fafafa; }
+.room-item { padding: 12px 14px; border-bottom: 1px solid #eee; cursor: pointer; font-size: 13px; }
+.room-item:hover, .room-item.active { background: #eef9f0; }
+.room-item .room-title { font-weight: bold; display: flex; justify-content: space-between; align-items: center; gap: 6px; }
+.room-item .room-last { color: #95a5a6; font-size: 11px; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.unread { background: #e74c3c; color: #fff; border-radius: 9px; padding: 1px 7px; font-size: 10px; }
+.claimed { font-size: 10px; color: #16a085; }
+.unclaimed { font-size: 10px; color: #e67e22; }
+
+.chat-box { width: 66%; display: flex; flex-direction: column; }
+.chat-messages { flex: 1; padding: 14px; overflow-y: auto; background: #f9f9f9; display: flex; flex-direction: column; }
+.msg { margin-bottom: 9px; padding: 8px 12px; border-radius: 8px; max-width: 72%; font-size: 13px; }
+.msg .who { font-size: 10px; color: #7f8c8d; display: block; margin-bottom: 3px; }
+.msg.mine  { background: #dcf8c6; align-self: flex-end; }
+.msg.other { background: #fff; border: 1px solid #e4e7eb; align-self: flex-start; }
+.chat-input { display: flex; gap: 8px; padding: 10px; border-top: 1px solid #e4e7eb; background: #fff; }
+.chat-input input { flex: 1; }
+
+@media (max-width: 760px) {
+  .sidebar { position: static; width: auto; }
+  .main-content { margin-left: 0; }
+  .chat-container { flex-direction: column; height: auto; }
+  .room-list, .chat-box { width: 100%; }
+  .room-list { max-height: 200px; }
+  .chat-messages { height: 300px; }
+}

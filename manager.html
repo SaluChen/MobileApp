@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>🎧 跨平台商務系統 — 營運人員後台 (manager)</title>
+    <link rel="stylesheet" href="backoffice.css">
+    <style>
+        /* 🛡️ 關鍵可見性規則內嵌，刻意不依賴外部 CSS。
+           backoffice.css 若沒載入成功（漏傳、路徑錯、被快取擋住），
+           `.app { display:none }` 就不會生效 —— 整個後台畫面會在「未登入」狀態下
+           直接顯示出來。內嵌一份用 #id 選擇器（優先權高於 class）當保險。 */
+        #app { display: none; }
+        #app.ready { display: block; }
+    </style>
+</head>
+<body>
+
+<!-- ==========================================================================
+     未登入不可瀏覽
+     -------------------------------------------------------------------------
+     登入功能已抽離到 login.html。本頁只負責守門：
+       沒有權杖          → 導向 login.html
+       角色不是 manager  → 導向後端指定的頁面（admin.html / index.html）
+     整個後台畫面預設 display:none，確認身分後才顯示。
+
+     ⚠️ 這只是介面層的門，真正的把關在 api.php —— 每支 staff-* 端點都會
+        用權杖驗身分與角色，直接拿工具打 API 一樣會被 401 / 403 擋下。
+
+     與 admin.html 的差異：
+       · 本頁只放行 manager 角色
+       · 會員清單為唯讀（調整角色與停用是 admin 專屬，後端也會擋）
+       · 客服中心只看得到「未認領」與「自己認領」的聊天室
+     版面與邏輯共用 backoffice.css / backoffice.js，避免同一份程式碼維護兩份。
+     ========================================================================== -->
+<div class="gate" id="checking">
+    <div class="gate-card" style="text-align:center;">
+        <h1>🎧 營運人員後台</h1>
+        <div class="sub">正在確認登入狀態...</div>
+    </div>
+</div>
+
+<!-- ========================================================================== -->
+<div class="app" id="app">
+
+    <div class="sidebar">
+        <div class="brand">🎧 營運人員後台</div>
+        <div class="whoami" id="whoami"></div>
+
+        <a data-tab="tab-products"   onclick="BO.switchTab('tab-products')">📦 商品管理</a>
+        <a data-tab="tab-categories" onclick="BO.switchTab('tab-categories')">🏷️ 分類管理</a>
+        <a data-tab="tab-orders"     onclick="BO.switchTab('tab-orders')">📜 訂單與支付流水</a>
+        <a data-tab="tab-users"      onclick="BO.switchTab('tab-users')">👥 會員帳戶清單</a>
+        <a data-tab="tab-chat"       onclick="BO.switchTab('tab-chat')">💬 客服即時通訊中心</a>
+
+        <a class="logout" onclick="BO.logout()">登出</a>
+    </div>
+
+    <div class="main-content">
+
+        <!-- ============ 一、商品管理 ============ -->
+        <div id="tab-products" class="tab-panel active">
+            <div class="panel">
+                <h2 id="productFormTitle">新商品上架</h2>
+                <div id="productMsg"></div>
+                <form id="productForm">
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label for="pName">商品名稱 *</label>
+                            <input type="text" id="pName" required>
+                        </div>
+                        <!-- 需求 4：分類欄位改用 listbox，選項同時列出 category_id 與 category_name -->
+                        <div class="form-group">
+                            <label for="pCatId">所屬分類</label>
+                            <select id="pCatId"><option value="">（載入中...）</option></select>
+                            <div class="hint">選項格式為「編號 - 分類名稱」，資料來自 Categories 表。留空代表未分類。</div>
+                        </div>
+                        <div class="form-group">
+                            <label for="pPrice">價格 (TWD) *</label>
+                            <input type="number" id="pPrice" min="0" step="0.01" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="pStock">庫存量 *</label>
+                            <input type="number" id="pStock" min="0" step="1" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="pImage">圖片網址</label>
+                            <input type="text" id="pImage" placeholder="https://...">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="pDesc">商品簡介</label>
+                        <textarea id="pDesc"></textarea>
+                    </div>
+                    <div class="btn-row">
+                        <button type="submit" id="productSubmitBtn">確認上架</button>
+                        <button type="button" class="secondary" id="productCancelBtn"
+                                style="display:none;" onclick="BO.resetProductForm()">取消編輯</button>
+                    </div>
+                </form>
+            </div>
+
+            <div class="panel">
+                <h2>商品清單</h2>
+                <table id="productsTable">
+                    <thead>
+                        <tr><th>ID</th><th>商品名稱</th><th>分類</th><th>價格</th><th>庫存</th><th>簡介</th><th>操作</th></tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+                <div class="pager" id="productsPager"></div>
+            </div>
+        </div>
+
+        <!-- ============ 二、分類管理 ============ -->
+        <div id="tab-categories" class="tab-panel">
+            <div class="panel">
+                <h2 id="categoryFormTitle">新增分類</h2>
+                <div id="categoryMsg"></div>
+                <form id="categoryForm">
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label for="cName">分類名稱 *</label>
+                            <input type="text" id="cName" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="cDesc">分類說明</label>
+                            <input type="text" id="cDesc">
+                        </div>
+                    </div>
+                    <div class="btn-row">
+                        <button type="submit" id="categorySubmitBtn">新增分類</button>
+                        <button type="button" class="secondary" id="categoryCancelBtn"
+                                style="display:none;" onclick="BO.resetCategoryForm()">取消編輯</button>
+                    </div>
+                </form>
+            </div>
+
+            <div class="panel">
+                <h2>分類清單</h2>
+                <p class="hint">刪除分類不會刪掉商品 —— 外鍵是 <code>ON DELETE SET NULL</code>，
+                    底下的商品會變成「未分類」。</p>
+                <table id="categoriesTable">
+                    <thead>
+                        <tr><th>ID</th><th>分類名稱</th><th>說明</th><th>商品數</th><th>操作</th></tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- ============ 三、訂單與支付流水 ============ -->
+        <div id="tab-orders" class="tab-panel">
+            <div class="panel">
+                <h2>客戶訂單處理</h2>
+                <p class="hint" id="ordersSortHint"></p>
+                <p class="hint">取消訂單時系統會在同一個事務內把該訂單扣掉的庫存全部還原。</p>
+                <div id="orderMsg"></div>
+                <table id="ordersTable">
+                    <thead>
+                        <tr>
+                            <th>訂單 ID</th><th>客戶</th><th>總金額</th><th>訂單狀態</th><th>成立時間</th>
+                            <th>支付方式 / 交易序號</th><th>付款狀態</th><th>收款時間</th><th>變更狀態</th><th></th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+                <div class="pager" id="ordersPager"></div>
+            </div>
+        </div>
+
+        <!-- ============ 四、會員帳戶清單 ============ -->
+        <div id="tab-users" class="tab-panel">
+            <div class="panel">
+                <h2>註冊會員資料庫概覽</h2>
+                <p class="hint">營運人員為<strong>唯讀</strong>檢視。調整會員角色與停用 / 重啟帳號
+                    都是 admin 專屬功能，後端會擋下 manager 的變更請求（403）。</p>
+                <div id="userMsg"></div>
+                <table id="usersTable">
+                    <thead>
+                        <tr><th>ID</th><th>電子郵件</th><th>姓名</th><th>角色</th><th>狀態</th><th>訂單數</th><th>累計消費</th><th>註冊時間</th><th>操作</th></tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+                <div class="pager" id="usersPager"></div>
+            </div>
+        </div>
+
+        <!-- ============ 五、客服即時通訊中心 ============ -->
+        <div id="tab-chat" class="tab-panel">
+            <div class="panel">
+                <h2>💬 客服即時通訊中心</h2>
+                <p class="hint">左側列出<strong>未認領</strong>與<strong>你已認領</strong>的聊天室。
+                    你一回覆未認領的房間，系統就會自動把它記在你名下，之後其他 manager 就看不到了
+                    —— 避免兩個人同時回同一位客戶。</p>
+                <div id="chatMsg"></div>
+                <div class="chat-container">
+                    <div class="room-list" id="roomList"></div>
+                    <div class="chat-box">
+                        <div style="padding:10px 14px; border-bottom:1px solid #e4e7eb; display:flex; justify-content:space-between; align-items:center;">
+                            <strong id="chatRoomTitle">尚未選擇聊天室</strong>
+                            <button class="small danger" id="chatCloseBtn" style="display:none;" onclick="BO.closeRoom()">結案</button>
+                        </div>
+                        <div class="chat-messages" id="chatMessages">
+                            <p class="empty">請從左側挑一間聊天室開始對話</p>
+                        </div>
+                        <div class="chat-input">
+                            <input type="text" id="chatInput" placeholder="請輸入回覆訊息..." disabled>
+                            <button id="chatSendBtn" onclick="BO.sendMessage()" disabled>發送</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<script>
+    // 本頁只放行 manager。系統管理員請走 admin.html。
+    window.BACKOFFICE_ROLE = 'manager';
+</script>
+<script src="backoffice.js"></script>
+<script>
+    // 🩺 部署自我檢查
+    // backoffice.js 若沒載入成功（漏傳、傳成別的檔案的內容、路徑錯、被快取擋住），
+    // 症狀是「登入按鈕按了完全沒反應」—— 從畫面上完全看不出原因。
+    // 這裡把它講白，省得對著空白的登入頁猜半天。
+    if (!window.BO) {
+        document.getElementById('checking').innerHTML =
+            '<div class="gate-card"><div class="gate-error">' +
+            '⚠️ backoffice.js 沒有正確載入，本頁無法運作。\n\n' +
+            '請確認：\n' +
+            '1. backoffice.js 與本頁在同一個目錄\n' +
+            '2. 它的內容是 JavaScript（不是 backoffice.css 的內容）\n' +
+            '3. 瀏覽器按 Ctrl+F5 清一次快取\n\n' +
+            '可用瀏覽器直接開 backoffice.js 確認內容。' +
+            '</div><p><a href="login.html">返回登入頁</a></p></div>';
+    }
+</script>
+</body>
+</html>

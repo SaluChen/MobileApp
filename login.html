@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>🔐 跨平台商務系統 — 統一登入</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', 'Microsoft JhengHei', sans-serif;
+            margin: 0;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
+            color: #2c3e50;
+        }
+        .card {
+            width: 100%;
+            max-width: 400px;
+            background: #fff;
+            padding: 32px;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.25);
+        }
+        h1 { margin: 0 0 4px; font-size: 22px; }
+        .sub { color: #7f8c8d; font-size: 13px; margin-bottom: 20px; }
+
+        .msg { padding: 10px 12px; border-radius: 4px; font-size: 13px; margin-bottom: 14px; white-space: pre-wrap; }
+        .msg.err  { background: #fdecea; border-left: 4px solid #e74c3c; color: #c0392b; }
+        .msg.ok   { background: #eafaf1; border-left: 4px solid #2ecc71; color: #1e8449; }
+        .msg.info { background: #eef5fc; border-left: 4px solid #3498db; color: #21618c; }
+
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; font-size: 13px; }
+        input {
+            width: 100%; padding: 10px; border: 1px solid #ccd1d9; border-radius: 4px;
+            font-size: 15px; font-family: inherit; background: #fff; color: #2c3e50;
+        }
+        input:focus { outline: 2px solid #3498db; outline-offset: -1px; }
+
+        button {
+            width: 100%; padding: 12px; background: #2ecc71; border: none; color: #fff;
+            border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 15px; font-family: inherit;
+        }
+        button:hover { background: #27ae60; }
+        button:disabled { opacity: .5; cursor: not-allowed; }
+
+        .link { color: #3498db; cursor: pointer; font-size: 13px; text-align: center; display: block; margin-top: 16px; }
+        .link:hover { text-decoration: underline; }
+
+        details { margin-top: 16px; font-size: 12px; color: #7f8c8d; }
+        details summary { cursor: pointer; }
+        .hint { font-size: 11px; color: #95a5a6; margin-top: 4px; line-height: 1.6; }
+
+        .roles { margin-top: 22px; padding-top: 16px; border-top: 1px solid #eee; font-size: 11px; color: #95a5a6; line-height: 1.9; }
+        .roles b { color: #34495e; }
+        .tag { display: inline-block; padding: 1px 7px; border-radius: 9px; color: #fff; font-size: 10px; }
+        .tag.customer  { background: #7f8c8d; }
+        .tag.manager   { background: #16a085; }
+        .tag.finance   { background: #d35400; }
+        .tag.warehouse { background: #8e44ad; }
+        .tag.logistics { background: #2980b9; }
+        .tag.admin     { background: #e67e22; }
+
+        .checking { text-align: center; color: #7f8c8d; font-size: 13px; padding: 20px 0; }
+    </style>
+</head>
+<body>
+
+<!-- ==========================================================================
+     統一登入頁
+     -------------------------------------------------------------------------
+     原本每一支網頁各自帶一份登入表單與驗證邏輯，
+     同樣的程式碼要維護好幾份，而且每一頁都要自己判斷「這個角色能不能進來」。
+     改成單一入口：
+
+        login.html  ──登入──►  後端回傳 role 與 home
+                                  ├─ customer  → index.html
+                                  ├─ manager   → manager.html
+                                  ├─ finance   → finance.html
+                                  ├─ warehouse → warehouse.html
+                                  ├─ logistics → logistics.html
+                                  └─ admin     → admin.html
+
+     🧭 導向哪一頁是「後端決定的」：登入回應直接帶 home 欄位。
+        本頁只負責照做，不在前端寫死角色對應表 ——
+        日後新增角色或改檔名，只要改 api.php 的 home_page_for_role()。
+     ========================================================================== -->
+<div class="card">
+    <h1>🔐 跨平台商務系統</h1>
+    <div class="sub" id="sub">請登入以繼續</div>
+
+    <div id="msg"></div>
+
+    <div id="checking" class="checking">正在確認登入狀態...</div>
+
+    <form id="authForm" style="display:none;">
+        <div class="form-group" id="nameGroup" style="display:none;">
+            <label for="fullName">姓名</label>
+            <input type="text" id="fullName" autocomplete="name">
+        </div>
+        <div class="form-group">
+            <label for="email">信箱</label>
+            <input type="email" id="email" autocomplete="username" required placeholder="customer@shop.com">
+        </div>
+        <div class="form-group">
+            <label for="password">密碼</label>
+            <input type="password" id="password" autocomplete="current-password" required>
+        </div>
+
+        <button type="submit" id="authBtn">登入</button>
+        <span class="link" id="toggleMode">還沒有帳號？建立新帳號</span>
+
+        <details>
+            <summary>連線設定</summary>
+            <div class="form-group" style="margin-top:10px;">
+                <label for="apiUrl">API 位址</label>
+                <input type="text" id="apiUrl" placeholder="api.php">
+                <div class="hint">
+                    預設為與本頁同目錄的 <code>api.php</code>（相對路徑可完全避開 CORS）。<br>
+                    若網頁與 API 不在同一台主機，才需要填完整網址，
+                    例如 <code>http://192.168.8.88/api.php</code>。
+                </div>
+            </div>
+        </details>
+
+        <div class="roles">
+            登入後系統會依你的角色自動導向：<br>
+            <span class="tag customer">一般會員</span> <b>index.html</b> 線上商城<br>
+            <span class="tag manager">營運人員</span> <b>manager.html</b> 營運後台<br>
+            <span class="tag finance">財務</span> <b>finance.html</b> 訂單帳款管理<br>
+            <span class="tag warehouse">倉管</span> <b>warehouse.html</b> 倉庫管理<br>
+            <span class="tag logistics">物流</span> <b>logistics.html</b> 物流管理<br>
+            <span class="tag admin">系統管理員</span> <b>admin.html</b> 管理後台
+        </div>
+    </form>
+</div>
+
+<script>
+(function () {
+    'use strict';
+
+    var DEFAULT_API = 'api.php';
+    var API_URL = localStorage.getItem('shop_api_url') || DEFAULT_API;
+    // 全部頁面共用同一個權杖鍵 —— 單一登入，一個瀏覽器同時只會有一個登入身分
+    var TOKEN_KEY = 'shop_token';
+    var isRegister = false;
+
+    function $(id) { return document.getElementById(id); }
+
+    function esc(v) {
+        if (v === null || v === undefined) return '';
+        return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    function notify(text, kind) {
+        $('msg').innerHTML = text ? '<div class="msg ' + (kind || 'info') + '">' + esc(text) + '</div>' : '';
+    }
+
+    async function api(path, options) {
+        options = options || {};
+        var headers = {};
+        if (options.body) headers['Content-Type'] = 'application/json';
+        if (options.token) {
+            headers['Authorization'] = 'Bearer ' + options.token;
+            // Apache 在部分設定下會吃掉 Authorization，補一個不會被過濾的備援
+            headers['X-Auth-Token'] = options.token;
+        }
+        var res = await fetch(API_URL + path, {
+            method: options.method || 'GET',
+            headers: headers,
+            body: options.body ? JSON.stringify(options.body) : undefined
+        });
+        // 先取純文字再自己 parse：PHP 若噴 warning，回應會是「HTML + JSON」，
+        // 直接 res.json() 只會拿到看不懂的 parse error。
+        var text = await res.text();
+        var data = null;
+        if (text) {
+            try { data = JSON.parse(text); }
+            catch (e) { throw new Error('伺服器回傳非 JSON 內容（HTTP ' + res.status + '）\n' + text.slice(0, 200)); }
+        }
+        if (!res.ok) throw new Error((data && data.message) || ('伺服器錯誤 HTTP ' + res.status));
+        return data;
+    }
+
+    /** 依網址上的 reason 顯示「為什麼被送回登入頁」 */
+    function showEntryReason() {
+        var reason = new URLSearchParams(location.search).get('reason');
+        if (reason === 'expired')   notify('登入已過期，請重新登入', 'err');
+        else if (reason === 'suspended') notify('此帳號已被停用，請聯繫系統管理員', 'err');
+        else if (reason === 'logout')    notify('已登出', 'ok');
+        else if (reason === 'denied')    notify('你的角色沒有權限使用該頁面，已送回登入頁', 'err');
+    }
+
+    function setMode(register) {
+        isRegister = register;
+        $('sub').textContent = register ? '建立新帳號後即可開始購物' : '請登入以繼續';
+        $('nameGroup').style.display = register ? 'block' : 'none';
+        $('fullName').required = register;
+        $('authBtn').textContent = register ? '送出註冊' : '登入';
+        $('toggleMode').textContent = register ? '已有帳號？返回登入' : '還沒有帳號？建立新帳號';
+        $('password').setAttribute('autocomplete', register ? 'new-password' : 'current-password');
+        notify('');
+    }
+
+    /** 導向後端指定的頁面。用 replace 讓「上一頁」不會退回登入頁。 */
+    function goHome(home) {
+        location.replace(home || 'index.html');
+    }
+
+    async function submitAuth(e) {
+        e.preventDefault();
+        var btn = $('authBtn');
+        btn.disabled = true;
+        btn.textContent = isRegister ? '註冊中...' : '驗證中...';
+
+        API_URL = ($('apiUrl').value || DEFAULT_API).trim().replace(/\/+$/, '') || DEFAULT_API;
+        localStorage.setItem('shop_api_url', API_URL);
+
+        try {
+            if (isRegister) {
+                await api('/users', {
+                    method: 'POST',
+                    body: {
+                        email: $('email').value,
+                        password: $('password').value,
+                        full_name: $('fullName').value
+                    }
+                });
+                setMode(false);
+                $('password').value = '';
+                notify('註冊成功，請用剛才的帳號登入', 'ok');
+                return;
+            }
+
+            var data = await api('/users?action=login', {
+                method: 'POST',
+                body: { action: 'login', email: $('email').value, password: $('password').value }
+            });
+
+            if (!data || !data.token) {
+                throw new Error('登入回應缺少 token，請確認伺服器上的 api.php 是最新版');
+            }
+            if (!data.home) {
+                throw new Error('登入回應缺少 home，請確認伺服器上的 api.php 是最新版');
+            }
+
+            localStorage.setItem(TOKEN_KEY, data.token);
+            notify('登入成功，正在前往' + data.home + ' ...', 'ok');
+            goHome(data.home); // 🧭 後端決定去哪一頁
+        } catch (err) {
+            localStorage.removeItem(TOKEN_KEY);
+            notify(err.message, 'err');
+        } finally {
+            btn.disabled = false;
+            btn.textContent = isRegister ? '送出註冊' : '登入';
+        }
+    }
+
+    /** 開頁時若手上已有有效權杖，直接送去他該待的頁面，不必再登入一次 */
+    async function boot() {
+        $('apiUrl').value = API_URL;
+        $('authForm').addEventListener('submit', submitAuth);
+        $('toggleMode').addEventListener('click', function () { setMode(!isRegister); });
+
+        var token = localStorage.getItem(TOKEN_KEY);
+        var reason = new URLSearchParams(location.search).get('reason');
+
+        // 帶著 reason 回來代表剛被踢出來，不要又自動跳回去（會變成無限迴圈）
+        if (!token || reason) {
+            if (!token) localStorage.removeItem(TOKEN_KEY);
+            $('checking').style.display = 'none';
+            $('authForm').style.display = 'block';
+            showEntryReason();
+            return;
+        }
+
+        try {
+            var me = await api('/users', { token: token });
+            if (!me || !me.user_id || !me.home) throw new Error('無法確認身分');
+            goHome(me.home);
+        } catch (err) {
+            localStorage.removeItem(TOKEN_KEY);
+            $('checking').style.display = 'none';
+            $('authForm').style.display = 'block';
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', boot);
+})();
+</script>
+</body>
+</html>

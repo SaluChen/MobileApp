@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>💰 跨平台商務系統 — 訂單帳款管理 (finance)</title>
+    <link rel="stylesheet" href="backoffice.css">
+    <style>
+        /* 🛡️ 關鍵可見性規則內嵌，刻意不依賴外部 CSS。
+           backoffice.css 若沒載入成功，`.app { display:none }` 就不會生效 ——
+           整個後台畫面會在「未登入」狀態下直接顯示出來。
+           內嵌一份用 #id 選擇器（優先權高於 class）當保險。 */
+        #app { display: none; }
+        #app.ready { display: block; }
+    </style>
+</head>
+<body>
+
+<!-- ==========================================================================
+     訂單帳款管理（限 finance 角色）
+     -------------------------------------------------------------------------
+     登入功能在 login.html。本頁只負責守門：
+       沒有權杖          → 導向 login.html
+       角色不是 finance   → 導向後端指定的頁面（me.home）
+
+     職責：審核 ATM 轉帳入帳、貨到付款收現，把付款狀態由待收款改為已收款
+
+     ⚠️ 介面層的角色判斷只是「不要讓看不懂的畫面出現」，不是安全機制 ——
+        真正的把關在 api.php 的 order_transition_rules()，
+        用工具直接打別的角色的動作一樣會被 403 擋下。
+     ========================================================================== -->
+<div class="gate" id="checking">
+    <div class="gate-card" style="text-align:center;">
+        <h1>💰 訂單帳款管理</h1>
+        <div class="sub">正在確認登入狀態...</div>
+    </div>
+</div>
+
+<!-- ========================================================================== -->
+<div class="app" id="app">
+
+    <div class="sidebar">
+        <div class="brand">💰 訂單帳款管理</div>
+        <div class="whoami" id="whoami"></div>
+
+        <a class="active">💰 待收款訂單</a>
+
+        <a class="logout" onclick="OPS.logout()">登出</a>
+    </div>
+
+    <div class="main-content">
+        <div class="panel">
+            <h2 id="opsTitle">訂單帳款管理</h2>
+            <p class="hint" id="opsHint"></p>
+
+            <div class="btn-row" style="margin-bottom:10px;">
+                <button class="small secondary" onclick="OPS.refresh()">🔄 重新整理</button>
+                <span class="info" id="queueCount"></span>
+            </div>
+
+            <div id="opsMsg"></div>
+
+            <table id="opsTable">
+                <thead>
+                    <tr>
+                        <th>訂單 ID</th><th>客戶</th><th>金額</th><th>訂單狀態</th>
+                        <th>成立時間</th><th id="focusHead"></th><th id="actionHead">操作</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+
+            <div class="pager" id="opsPager"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // 本頁只放行 finance。其餘欄位（篩選、動作、文案）由 ops.js 的 MODES 決定。
+    window.OPS_MODE = 'finance';
+</script>
+<script src="ops.js"></script>
+<script>
+    // 🩺 部署自我檢查：ops.js 沒載入成功時，畫面會卡在「正在確認登入狀態」
+    //    而看不出原因。這裡把話講白。
+    if (!window.OPS) {
+        document.getElementById('checking').innerHTML =
+            '<div class="gate-card"><div class="gate-error">' +
+            '⚠️ ops.js 沒有正確載入，本頁無法運作。<br><br>' +
+            '請確認 ops.js 與本頁在同一個目錄，並按 Ctrl+F5 清一次快取。' +
+            '</div><p><a href="login.html">返回登入頁</a></p></div>';
+    }
+</script>
+</body>
+</html>

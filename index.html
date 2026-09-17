@@ -1,0 +1,672 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>🛍️ 跨平台商務系統 — PC 顧客商城前台</title>
+    <style>
+        * { box-sizing: border-box; }
+        body { font-family: 'Segoe UI', 'Microsoft JhengHei', sans-serif; margin: 0; background: #fafafa; color: #2c3e50; }
+
+        /* ---------- 登入閘門 ---------- */
+        .gate { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
+        .gate-card { width: 100%; max-width: 380px; background: #fff; padding: 30px; border-radius: 10px; box-shadow: 0 6px 24px rgba(0,0,0,.08); }
+        .gate-card h1 { margin: 0 0 4px; font-size: 20px; }
+        .gate-card .sub { color: #7f8c8d; font-size: 13px; margin-bottom: 18px; }
+        .gate-error { background: #fdecea; border-left: 4px solid #e74c3c; color: #c0392b; padding: 10px 12px; border-radius: 4px; font-size: 13px; margin-bottom: 14px; white-space: pre-wrap; }
+        .gate-ok { background: #eafaf1; border-left: 4px solid #2ecc71; color: #1e8449; padding: 10px 12px; border-radius: 4px; font-size: 13px; margin-bottom: 14px; }
+        .link { color: #3498db; cursor: pointer; font-size: 13px; text-align: center; display: block; margin-top: 14px; }
+        details.adv { margin-top: 14px; font-size: 12px; color: #7f8c8d; }
+        details.adv summary { cursor: pointer; }
+
+        /* ---------- 版面 ---------- */
+        .shop { display: none; }
+        .shop.ready { display: block; }
+        .topbar { background: #2c3e50; color: #ecf0f1; padding: 12px 20px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
+        .topbar .who { font-size: 13px; }
+        .layout { display: flex; gap: 20px; padding: 20px; align-items: flex-start; flex-wrap: wrap; }
+        .mall-side { flex: 2 1 460px; background: #fff; padding: 22px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,.05); }
+        .cart-chat-side { flex: 1 1 300px; display: flex; flex-direction: column; gap: 20px; }
+        .side-box { background: #fff; padding: 18px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,.05); }
+
+        h2 { margin-top: 0; font-size: 18px; }
+        h3 { margin-top: 0; font-size: 15px; }
+        .product-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 15px; }
+        .p-card { border: 1px solid #eee; padding: 15px; border-radius: 6px; }
+        .p-card h4 { margin: 0 0 6px; font-size: 15px; }
+        .p-desc { color: #7f8c8d; font-size: 12px; min-height: 32px; }
+        .price { color: #e74c3c; font-weight: bold; margin: 6px 0; }
+        .stock { font-size: 11px; color: #95a5a6; }
+        .review-box { margin-top: 10px; background: #f9f9f9; padding: 8px; font-size: 12px; border-radius: 4px; }
+        .review-box div.r { padding: 3px 0; border-bottom: 1px dashed #e4e7eb; }
+
+        input, textarea, select { width: 100%; padding: 8px 10px; border: 1px solid #ccd1d9; border-radius: 4px; font-size: 14px; font-family: inherit; }
+        label { display: block; font-weight: bold; font-size: 13px; margin-bottom: 5px; }
+        .form-group { margin-bottom: 14px; }
+        button { padding: 8px 14px; background: #2ecc71; border: none; color: #fff; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 14px; font-family: inherit; }
+        button:hover { background: #27ae60; }
+        button:disabled { opacity: .5; cursor: not-allowed; }
+        button.small { padding: 3px 9px; font-size: 12px; }
+        button.secondary { background: #7f8c8d; }
+        button.danger { background: #e74c3c; }
+        .btn-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+        .cart-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid #eee; font-size: 13px; }
+        .cart-row .n { flex: 1; }
+        .qty { display: flex; align-items: center; gap: 6px; }
+        .qty button { width: 26px; height: 26px; padding: 0; background: #ecf0f1; color: #2c3e50; border-radius: 13px; }
+        .total-row { display: flex; justify-content: space-between; font-weight: bold; padding: 10px 0; border-top: 2px solid #ddd; margin-top: 6px; }
+        .total-row .v { color: #e74c3c; font-size: 18px; }
+
+        /* 訂單明細展開區 */
+        .order-no { color: #3498db; font-weight: bold; }
+        .order-detail { background: #fbfcfc; border: 1px solid #e4e7eb; border-radius: 6px; padding: 10px 12px; margin: 4px 0 10px; font-size: 12px; }
+        .od-sec { margin-bottom: 10px; }
+        .od-sec:last-child { margin-bottom: 0; }
+        .od-sec b { display: block; color: #34495e; margin-bottom: 5px; font-size: 12px; border-bottom: 1px solid #e4e7eb; padding-bottom: 3px; }
+        .od-line { display: flex; justify-content: space-between; gap: 10px; padding: 3px 0; }
+        .od-line.od-total { border-top: 1px solid #e4e7eb; margin-top: 4px; padding-top: 6px; font-weight: bold; color: #e74c3c; }
+        .pay-success { color: #27ae60; font-weight: bold; }
+        .pay-pending { color: #e67e22; font-weight: bold; }
+        .pay-cancelled { color: #95a5a6; }
+        .pay-note { margin-top: 6px; padding: 6px 8px; background: #fef5e7; border-left: 3px solid #e67e22; border-radius: 3px; color: #7d6608; font-size: 11px; }
+
+        .chat-area { height: 220px; overflow-y: auto; background: #f5f5f5; padding: 10px; border: 1px solid #e4e7eb; border-radius: 4px; margin-bottom: 8px; display: flex; flex-direction: column; }
+        .msg { margin-bottom: 8px; padding: 7px 10px; border-radius: 8px; max-width: 80%; font-size: 13px; }
+        .msg .who { display: block; font-size: 10px; color: #7f8c8d; margin-bottom: 2px; }
+        .msg.mine { background: #dcf8c6; align-self: flex-end; }
+        .msg.other { background: #fff; border: 1px solid #e4e7eb; align-self: flex-start; }
+
+        .notice { padding: 9px 12px; border-radius: 4px; font-size: 13px; margin-bottom: 12px; white-space: pre-wrap; }
+        .notice.ok { background: #eafaf1; border-left: 4px solid #2ecc71; color: #1e8449; }
+        .notice.err { background: #fdecea; border-left: 4px solid #e74c3c; color: #c0392b; }
+        .empty { color: #95a5a6; text-align: center; padding: 16px; font-size: 13px; }
+        .muted { color: #95a5a6; }
+    </style>
+</head>
+<body>
+
+<!-- ==========================================================================
+     登入閘門
+     -------------------------------------------------------------------------
+     登入功能已抽離到 login.html。本頁只負責守門：
+       沒有權杖           → 導向 login.html
+       角色不是 customer  → 導向後端指定的頁面（manager.html / admin.html）
+
+     （更早的版本寫死 mockCustomerId = 101，任何人打開網頁就等於用 101 號會員的
+       身分下單、看購物車、跟客服講話 —— API 加上權杖驗證後那種寫法已無法運作。）
+     ========================================================================== -->
+<div class="gate" id="checking">
+    <div class="gate-card" style="text-align:center;">
+        <h1>🛍️ 線上商城</h1>
+        <div class="sub" id="checkingMsg">正在確認登入狀態...</div>
+    </div>
+</div>
+
+<!-- ========================================================================== -->
+<div class="shop" id="shop">
+    <div class="topbar">
+        <strong>🛍️ 線上商城（PC 網頁版）</strong>
+        <div class="who">
+            <span id="whoami"></span>
+            <button class="small secondary" onclick="Shop.logout()">登出</button>
+        </div>
+    </div>
+
+    <div class="layout">
+        <div class="mall-side">
+            <h2>商品目錄</h2>
+            <div class="btn-row" style="margin-bottom:12px;">
+                <button class="small secondary" onclick="Shop.loadProducts()">🔄 重新整理</button>
+                <span class="muted" style="font-size:12px;">
+                    刻意不做自動輪詢 —— 商品清單每 5 秒重抓一次會讓每位訪客持續轟炸資料庫。
+                </span>
+            </div>
+            <div id="shopMsg"></div>
+            <div class="product-grid" id="productGrid"></div>
+        </div>
+
+        <div class="cart-chat-side">
+            <div class="side-box">
+                <h3>🛒 我的購物車</h3>
+                <div id="cartMsg"></div>
+                <div id="cartList"><p class="empty">購物車空空如也</p></div>
+                <div class="total-row"><span>總計</span><span class="v" id="cartTotal">$0</span></div>
+
+                <div class="form-group" style="margin-top:10px;">
+                    <label for="payMethod">支付方式</label>
+                    <select id="payMethod">
+                        <option value="Credit Card">💳 信用卡</option>
+                        <option value="ATM Transfer">🏧 ATM 轉帳</option>
+                        <option value="Mobile Pay">📱 行動支付</option>
+                        <option value="COD">📦 貨到付款</option>
+                    </select>
+                </div>
+
+                <button style="width:100%;" id="checkoutBtn" onclick="Shop.checkout()">確認成立訂單並結帳</button>
+            </div>
+
+            <div class="side-box">
+                <h3>📋 我的訂單</h3>
+                <div id="orderList"><p class="empty">還沒有訂單</p></div>
+            </div>
+
+            <div class="side-box">
+                <h3>💬 線上即時客服</h3>
+                <div id="chatMsg"></div>
+                <button id="startChatBtn" onclick="Shop.startChat()">發起線上客服連線</button>
+                <div id="chatWrap" style="display:none;">
+                    <p class="muted" style="font-size:11px;" id="chatRoomHint"></p>
+                    <div class="chat-area" id="chatArea"></div>
+                    <div class="btn-row">
+                        <input type="text" id="chatInput" style="flex:1;" placeholder="輸入訊息...">
+                        <button onclick="Shop.sendMessage()">送出</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+(function () {
+    'use strict';
+
+    var DEFAULT_API = 'api.php';
+    // API 位址是在 login.html 設定的，這裡只讀
+    var API_URL = localStorage.getItem('shop_api_url') || DEFAULT_API;
+    // 三支網頁共用同一個權杖鍵 —— 單一登入，一個瀏覽器同時只會有一個登入身分
+    var TOKEN = localStorage.getItem('shop_token') || null;
+    var LOGIN_PAGE = 'login.html';
+    var ME = null;
+
+    var roomId = null;
+    var chatTimer = null;
+    var cartItems = [];
+
+    // 🛡️ 一律經過這裡再塞進 innerHTML —— 商品名稱、評價、聊天訊息都是使用者輸入，
+    //    沒跳脫的話對方打一段 <img onerror=...> 就會在別人的瀏覽器執行（儲存型 XSS）。
+    function esc(v) {
+        if (v === null || v === undefined) return '';
+        return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+    function money(n) {
+        var v = Number(n || 0);
+        if (!isFinite(v)) v = 0;
+        // 整數不補小數點，有小數才顯示兩位 —— 商品價格多為整數，補 .00 只是雜訊
+        var s = Math.abs(v).toFixed(Number.isInteger(v) ? 0 : 2);
+        var dot = s.indexOf('.');
+        var whole = dot < 0 ? s : s.slice(0, dot);
+        var frac = dot < 0 ? '' : s.slice(dot);
+        // 千分位：在「右邊剛好還剩 3 的倍數個數字」的位置插逗號，
+        // \B 確保不會插在字串最前面（1000 → 1,000 而不是 ,1,000）
+        return (v < 0 ? '-$' : '$') + whole.replace(/\B(?=(\d{3})+$)/g, ',') + frac;
+    }
+    function when(v) { return v ? String(v).replace('T', ' ').slice(0, 16) : ''; }
+    function $(id) { return document.getElementById(id); }
+    function notify(id, msg, kind) {
+        var el = $(id);
+        if (!el) return;
+        el.innerHTML = msg ? '<div class="notice ' + (kind || 'ok') + '">' + esc(msg) + '</div>' : '';
+        if (kind === 'ok') setTimeout(function () { el.innerHTML = ''; }, 4000);
+    }
+
+    async function api(path, options) {
+        options = options || {};
+        var headers = {};
+        if (options.body) headers['Content-Type'] = 'application/json';
+        if (TOKEN) { headers['Authorization'] = 'Bearer ' + TOKEN; headers['X-Auth-Token'] = TOKEN; }
+
+        var res = await fetch(API_URL + path, {
+            method: options.method || 'GET',
+            headers: headers,
+            body: options.body ? JSON.stringify(options.body) : undefined
+        });
+
+        var text = await res.text();
+        var data = null;
+        if (text) {
+            try { data = JSON.parse(text); }
+            catch (e) { throw new Error('伺服器回傳非 JSON 內容（HTTP ' + res.status + '）'); }
+        }
+        // 401 = 權杖過期；ACCOUNT_SUSPENDED（403）= 帳號被管理員停用。兩者都要回登入頁。
+        if (res.status === 401 || (data && data.code === 'ACCOUNT_SUSPENDED')) {
+            bounceToLogin((data && data.code === 'ACCOUNT_SUSPENDED') ? 'suspended' : 'expired');
+            throw new Error((data && data.message) || '登入已過期');
+        }
+        if (!res.ok) throw new Error((data && data.message) || ('伺服器錯誤 HTTP ' + res.status));
+        return data;
+    }
+
+    // ================= 守門（登入功能已移至 login.html）=================
+
+    /** 清掉本機登入狀態並回到登入頁。reason 讓 login.html 顯示原因。 */
+    function bounceToLogin(reason) {
+        TOKEN = null; ME = null; roomId = null; cartItems = [];
+        localStorage.removeItem('shop_token');
+        stopChat();
+        location.replace(LOGIN_PAGE + (reason ? '?reason=' + encodeURIComponent(reason) : ''));
+    }
+
+    function showShop() {
+        $('checking').style.display = 'none';
+        $('shop').classList.add('ready');
+        $('whoami').textContent = ME.full_name + '（#' + ME.user_id + '）';
+        loadProducts();
+        loadCart();
+        loadOrders();
+    }
+
+    /** 使用者主動登出：先請後端把權杖列入黑名單，再回登入頁 */
+    function doLogout() {
+        var old = TOKEN;
+        // 不等結果也不擋流程 —— 就算網路失敗，本機已經清掉了，
+        // 那張權杖最多 7 天後也會自然過期。
+        if (old) {
+            fetch(API_URL + '/users?action=logout', {
+                method: 'POST',
+                headers: { 'Authorization': 'Bearer ' + old, 'X-Auth-Token': old }
+            }).catch(function () {});
+        }
+        bounceToLogin('logout');
+    }
+
+    /**
+     * 開頁守門：
+     *   沒權杖            → login.html
+     *   角色不是 customer → 後端指定的那一頁（me.home）
+     *   權杖無效          → login.html?reason=expired（由 api() 內部處理）
+     */
+    async function boot() {
+        $('chatInput').addEventListener('keydown', function (e) {
+            if (e.key === 'Enter') { e.preventDefault(); sendMessage(); }
+        });
+
+        if (!TOKEN) { bounceToLogin(); return; }
+        try {
+            var me = await api('/users');
+            if (!me || !me.user_id) throw new Error('無法取得帳號資料');
+
+            if (me.role !== 'customer') {
+                // 後台人員走錯門，直接送到他該去的那一頁
+                location.replace(me.home || LOGIN_PAGE + '?reason=denied');
+                return;
+            }
+            ME = me;
+            showShop();
+        } catch (err) {
+            // api() 收到 401/停用時已經跳轉了，這裡處理其他錯誤（例如連不上伺服器）
+            $('checkingMsg').innerHTML = '<div class="notice err">' + esc(err.message) +
+                '</div><p><a href="' + LOGIN_PAGE + '">返回登入頁</a></p>';
+        }
+    }
+
+    // ================= 商品 =================
+    async function loadProducts() {
+        var grid = $('productGrid');
+        grid.innerHTML = '<p class="empty">載入中...</p>';
+        try {
+            var products = await api('/products?page=1');
+            if (!products || !products.length) { grid.innerHTML = '<p class="empty">目前沒有商品</p>'; return; }
+            grid.innerHTML = products.map(function (p) {
+                return '<div class="p-card">' +
+                    '<h4>' + esc(p.name) + '</h4>' +
+                    (p.category_name ? '<div class="muted" style="font-size:11px;">' + esc(p.category_name) + '</div>' : '') +
+                    '<div class="p-desc">' + esc(p.description || '') + '</div>' +
+                    '<div class="price">' + money(p.price) + ' TWD</div>' +
+                    '<div class="stock">庫存 ' + esc(p.stock_quantity) + ' 件</div>' +
+                    '<div class="btn-row" style="margin-top:8px;">' +
+                        '<button class="small" onclick="Shop.addToCart(' + esc(p.product_id) + ')">加入購物車</button>' +
+                        '<button class="small secondary" onclick="Shop.toggleReviews(' + esc(p.product_id) + ')">評價</button>' +
+                    '</div>' +
+                    '<div class="review-box" id="rev-' + esc(p.product_id) + '" style="display:none;"></div>' +
+                    '</div>';
+            }).join('');
+        } catch (e) {
+            grid.innerHTML = '<p class="empty">' + esc(e.message) + '</p>';
+        }
+    }
+
+    /**
+     * 評價改成「點開才載入」。
+     * 舊版是在商品迴圈裡對每件商品各發一次 /reviews（N+1 查詢），
+     * 再加上 setInterval 每 5 秒重跑一次 —— 20 件商品就是每 5 秒 21 個請求。
+     */
+    async function toggleReviews(pid) {
+        var box = $('rev-' + pid);
+        if (box.style.display !== 'none') { box.style.display = 'none'; return; }
+        box.style.display = 'block';
+        box.innerHTML = '載入評價中...';
+        try {
+            var reviews = await api('/reviews?product_id=' + pid);
+            var list = (reviews || []).map(function (r) {
+                return '<div class="r">' + '⭐'.repeat(Number(r.rating) || 5) + ' ' +
+                    esc(r.full_name) + '：' + esc(r.comment) + '</div>';
+            }).join('') || '<div class="muted">暫無評價，搶先留言！</div>';
+            box.innerHTML = list +
+                '<div class="btn-row" style="margin-top:6px;">' +
+                '<input type="text" id="newRev-' + pid + '" placeholder="寫下你的評價..." style="flex:1;">' +
+                '<button class="small" onclick="Shop.postReview(' + pid + ')">發表</button></div>';
+        } catch (e) {
+            box.innerHTML = '<span class="muted">' + esc(e.message) + '</span>';
+        }
+    }
+
+    async function postReview(pid) {
+        var input = $('newRev-' + pid);
+        var comment = (input.value || '').trim();
+        if (!comment) return;
+        try {
+            // user_id 不用送，後端從權杖認人
+            await api('/reviews', { method: 'POST', body: { product_id: pid, rating: 5, comment: comment } });
+            input.value = '';
+            $('rev-' + pid).style.display = 'none';
+            toggleReviews(pid);
+        } catch (e) {
+            notify('shopMsg', e.message, 'err');
+        }
+    }
+
+    // ================= 購物車 =================
+    async function addToCart(pid) {
+        try {
+            await api('/cart', { method: 'POST', body: { product_id: pid, quantity: 1 } });
+            notify('cartMsg', '已加入購物車', 'ok');
+            loadCart();
+        } catch (e) {
+            notify('cartMsg', e.message, 'err'); // 庫存不足會回 409 中文訊息
+        }
+    }
+
+    async function loadCart() {
+        try {
+            cartItems = (await api('/cart')) || [];
+        } catch (e) {
+            notify('cartMsg', e.message, 'err');
+            cartItems = [];
+        }
+        renderCart();
+    }
+
+    function renderCart() {
+        var wrap = $('cartList');
+        if (!cartItems.length) {
+            wrap.innerHTML = '<p class="empty">購物車空空如也</p>';
+            $('cartTotal').textContent = '$0';
+            $('checkoutBtn').disabled = true;
+            return;
+        }
+        var total = 0;
+        wrap.innerHTML = cartItems.map(function (i) {
+            var sub = Number(i.price) * Number(i.quantity);
+            total += sub;
+            return '<div class="cart-row">' +
+                '<span class="n">' + esc(i.name) + '<br><span class="muted" style="font-size:11px;">單價 ' + money(i.price) + '</span></span>' +
+                '<span class="qty">' +
+                    '<button onclick="Shop.changeQty(' + esc(i.cart_id) + ', ' + (Number(i.quantity) - 1) + ')">−</button>' +
+                    '<span>' + esc(i.quantity) + '</span>' +
+                    '<button onclick="Shop.changeQty(' + esc(i.cart_id) + ', ' + (Number(i.quantity) + 1) + ')">＋</button>' +
+                '</span>' +
+                '<span>' + money(sub) + '</span>' +
+                '<button class="small danger" onclick="Shop.removeItem(' + esc(i.cart_id) + ')">✕</button>' +
+                '</div>';
+        }).join('');
+        $('cartTotal').textContent = money(total);
+        $('checkoutBtn').disabled = false;
+    }
+
+    function cartTotal() {
+        return cartItems.reduce(function (s, i) { return s + Number(i.price || 0) * Number(i.quantity || 0); }, 0);
+    }
+
+    async function changeQty(cartId, qty) {
+        if (qty < 1) { removeItem(cartId); return; }
+        try {
+            await api('/cart', { method: 'PUT', body: { cart_id: cartId, quantity: qty } });
+            loadCart();
+        } catch (e) {
+            notify('cartMsg', e.message, 'err');
+            loadCart();
+        }
+    }
+
+    async function removeItem(cartId) {
+        try {
+            await api('/cart?cart_id=' + cartId, { method: 'DELETE' });
+            loadCart();
+        } catch (e) {
+            notify('cartMsg', e.message, 'err');
+            loadCart();
+        }
+    }
+
+    async function checkout() {
+        if (!cartItems.length) return;
+        var btn = $('checkoutBtn');
+        btn.disabled = true;
+        try {
+            // 💰 不送 items 與 total_amount —— 訂單內容與金額都由後端讀資料庫的購物車自行計算。
+            //    expected_total 只是對帳用：對不上代表結帳前調價了，後端會回 409 要求重新確認。
+            var order = await api('/orders', { method: 'POST', body: { expected_total: cartTotal() } });
+            if (!order || !order.order_id) throw new Error('訂單建立回應缺少 order_id');
+
+            // 支付方式由使用者選擇（後端有白名單驗證，不接受清單外的值）
+            var payMethod = $('payMethod').value;
+            var pay = await api('/payments', {
+                method: 'POST',
+                body: {
+                    order_id: order.order_id,
+                    payment_method: payMethod,
+                    transaction_id: 'TXN-' + Date.now()
+                }
+            });
+            // 訊息直接用後端回的 —— 即時扣款與延後付款的說法不同，
+            // 由後端統一決定比前端各自拼字串可靠。
+            notify('cartMsg',
+                (pay.payment_status === 'success' ? '🎉 ' : '📝 ') +
+                '訂單 #' + order.order_id + '　' + money(order.total_amount) + '\n' +
+                (pay.message || ''),
+                pay.payment_status === 'success' ? 'ok' : 'info');
+            loadCart();
+            loadOrders();
+            loadProducts(); // 庫存已扣，重抓一次
+        } catch (e) {
+            notify('cartMsg', e.message, 'err');
+            loadCart(); // 價格變動或庫存不足時，重抓讓使用者看到最新狀態
+        } finally {
+            btn.disabled = false;
+        }
+    }
+
+    // ================= 我的訂單 =================
+    // 訂單狀態只表示出貨進度；付款狀況看 PAY_STATUS_LABEL（兩者互不干涉）。
+    // pending / paid 是舊制留下的值，只會出現在歷史訂單。
+    var ORDER_LABEL = {
+        awaiting_shipment: '待出貨', shipped: '已出貨', completed: '已完成',
+        cancelled: '已取消', pending: '待付款(舊)', paid: '已付款(舊)'
+    };
+    var PAY_LABEL = {
+        'Credit Card': '信用卡', 'ATM Transfer': 'ATM 轉帳',
+        'Mobile Pay': '行動支付', 'COD': '貨到付款', 'App Pay': 'App 支付'
+    };
+    var PAY_STATUS_LABEL = { success: '✅ 已收款', pending: '⏳ 待收款', cancelled: '✖ 已取消' };
+    var PAY_HINT = {
+        'ATM Transfer': '請完成轉帳，款項入帳確認後訂單才會轉為已付款。',
+        'COD': '商品送達時付款，收款後訂單才會轉為已付款。'
+    };
+    var orderDetailCache = {};   // { [order_id]: 完整訂單 }
+    var expandedOrderId = null;  // 一次只展開一張
+
+    async function loadOrders() {
+        var wrap = $('orderList');
+        try {
+            var orders = await api('/orders');
+            if (!orders || !orders.length) { wrap.innerHTML = '<p class="empty">還沒有訂單</p>'; return; }
+            wrap.innerHTML = orders.slice(0, 10).map(function (o) {
+                var id = String(o.order_id);
+                var open = id === String(expandedOrderId);
+                return '<div class="cart-row" style="cursor:pointer;" onclick="Shop.toggleOrder(' + esc(id) + ')" ' +
+                        'title="點擊查看完整訂單資訊">' +
+                    '<span class="n"><span class="order-no">' + (open ? '▾' : '▸') + ' #' + esc(id) + '</span>' +
+                        '<br><span class="muted" style="font-size:11px;">' + esc(when(o.created_at)) + '</span></span>' +
+                    '<span>' + esc(ORDER_LABEL[o.status] || o.status) + '</span>' +
+                    '<span>' + money(o.total_amount) + '</span>' +
+                    '</div>' +
+                    '<div class="order-detail" id="od-' + esc(id) + '"' + (open ? '' : ' style="display:none;"') + '></div>';
+            }).join('');
+            if (expandedOrderId) renderOrderDetail(expandedOrderId);
+        } catch (e) {
+            wrap.innerHTML = '<p class="empty">' + esc(e.message) + '</p>';
+        }
+    }
+
+    /** 點訂單號碼 → 展開／收合完整訂單資訊 */
+    async function toggleOrder(orderId) {
+        var id = String(orderId);
+        if (String(expandedOrderId) === id) { expandedOrderId = null; loadOrders(); return; }
+        expandedOrderId = id;
+        loadOrders();
+
+        var box = $('od-' + id);
+        if (!box) return;
+        if (orderDetailCache[id]) { renderOrderDetail(id); return; }
+
+        box.innerHTML = '<p class="empty">載入訂單資訊中...</p>';
+        try {
+            // 一次拿齊：主檔 + 明細 + 付款紀錄
+            orderDetailCache[id] = await api('/orders?order_id=' + encodeURIComponent(id));
+            renderOrderDetail(id);
+        } catch (e) {
+            box.innerHTML = '<div class="notice err">' + esc(e.message) + '</div>';
+        }
+    }
+
+    function renderOrderDetail(orderId) {
+        var id = String(orderId);
+        var box = $('od-' + id);
+        var o = orderDetailCache[id];
+        if (!box || !o) return;
+
+        var items = (o.items || []).map(function (it) {
+            // 商品可能已下架（product_id 變 NULL），名稱就查不到了
+            var unit = Number(it.price_at_purchase != null ? it.price_at_purchase : it.price || 0);
+            var qty = Number(it.quantity || 0);
+            return '<div class="od-line">' +
+                '<span>' + esc(it.name || ('商品 #' + (it.product_id || '已下架'))) +
+                    ' <span class="muted">x' + qty + '</span></span>' +
+                '<span>' + money(unit * qty) + '</span>' +
+                '</div>';
+        }).join('') || '<div class="muted">這張訂單沒有明細資料</div>';
+
+        var pay;
+        if (o.payment) {
+            var ps = o.payment.status || 'pending';
+            // 未入帳的付款沒有 paid_at，不要顯示假的時間
+            var paidAtCell = o.payment.paid_at
+                ? '<span class="muted">' + esc(when(o.payment.paid_at)) + '</span>'
+                : '<span class="muted">—</span>';
+            pay =
+                '<div class="od-line"><span>支付方式</span><span>' +
+                    esc(PAY_LABEL[o.payment.payment_method] || o.payment.payment_method) + '</span></div>' +
+                '<div class="od-line"><span>付款狀態</span><span class="pay-' + esc(ps) + '">' +
+                    esc(PAY_STATUS_LABEL[ps] || ps) + '</span></div>' +
+                '<div class="od-line"><span>交易序號</span><span class="muted">' + esc(o.payment.transaction_id) + '</span></div>' +
+                '<div class="od-line"><span>付款金額</span><span>' + money(o.payment.amount) + '</span></div>' +
+                '<div class="od-line"><span>付款時間</span>' + paidAtCell + '</div>' +
+                (ps === 'pending' ? '<div class="pay-note">' + esc(PAY_HINT[o.payment.payment_method] || '款項確認後訂單才會轉為已付款') + '</div>' : '');
+        } else {
+            pay = '<div class="muted">尚無付款紀錄</div>';
+        }
+
+        box.innerHTML =
+            '<div class="od-sec"><b>訂單資訊</b>' +
+                '<div class="od-line"><span>訂單編號</span><span>#' + esc(o.order_id) + '</span></div>' +
+                '<div class="od-line"><span>成立時間</span><span class="muted">' + esc(when(o.created_at)) + '</span></div>' +
+                '<div class="od-line"><span>訂單狀態</span><span>' + esc(ORDER_LABEL[o.status] || o.status) + '</span></div>' +
+                '<div class="od-line"><span>訂購人</span><span class="muted">' + esc(o.full_name || '') + '</span></div>' +
+            '</div>' +
+            '<div class="od-sec"><b>商品明細</b>' + items +
+                '<div class="od-line od-total"><span>總計</span><span>' + money(o.total_amount) + '</span></div>' +
+            '</div>' +
+            '<div class="od-sec"><b>付款資訊</b>' + pay + '</div>';
+    }
+
+    // ================= 客服 =================
+    function stopChat() { if (chatTimer) { clearTimeout(chatTimer); chatTimer = null; } }
+
+    async function startChat() {
+        try {
+            // 後端會找出這位客戶自己 open 的房，沒有才開新的 —— 不會每次點都多開一間
+            var room = await api('/chat-rooms', { method: 'POST' });
+            if (!room || !room.room_id) throw new Error('伺服器沒有回傳 room_id');
+            roomId = room.room_id;
+            $('startChatBtn').style.display = 'none';
+            $('chatWrap').style.display = 'block';
+            $('chatRoomHint').textContent = '對話編號 #' + roomId + '，僅你與客服人員看得到';
+            chatTick();
+        } catch (e) {
+            notify('chatMsg', e.message, 'err');
+        }
+    }
+
+    /** 遞迴 setTimeout 而非 setInterval：保證「上一輪跑完才排下一輪」，網路慢時不會堆成雪崩 */
+    async function chatTick() {
+        stopChat();
+        try { await loadMessages(); } catch (e) { /* 輪詢失敗保持靜默 */ }
+        if (roomId) chatTimer = setTimeout(chatTick, 2500);
+    }
+
+    async function loadMessages() {
+        if (!roomId) return;
+        var msgs = await api('/messages?room_id=' + roomId);
+        var area = $('chatArea');
+        if (!msgs || !msgs.length) {
+            area.innerHTML = '<p class="empty">留言給客服，專人會盡快回覆</p>';
+            return;
+        }
+        area.innerHTML = msgs.map(function (m) {
+            var mine = ME && String(m.sender_id) === String(ME.user_id);
+            return '<div class="msg ' + (mine ? 'mine' : 'other') + '">' +
+                '<span class="who">' + esc(m.sender_name) +
+                (m.sender_role && m.sender_role !== 'customer' ? '（客服）' : '') +
+                ' · ' + esc(when(m.created_at)) + '</span>' +
+                esc(m.message_text) + '</div>';
+        }).join('');
+        area.scrollTop = area.scrollHeight;
+    }
+
+    async function sendMessage() {
+        var input = $('chatInput');
+        var text = (input.value || '').trim();
+        if (!text || !roomId) return;
+        input.value = '';
+        try {
+            // sender_id 不用送，後端從權杖認人
+            await api('/messages', { method: 'POST', body: { room_id: roomId, message_text: text } });
+            await loadMessages();
+        } catch (e) {
+            input.value = text;
+            notify('chatMsg', e.message, 'err');
+        }
+    }
+
+    window.Shop = {
+        logout: doLogout,
+        loadProducts: loadProducts,
+        toggleReviews: toggleReviews,
+        postReview: postReview,
+        addToCart: addToCart,
+        changeQty: changeQty,
+        removeItem: removeItem,
+        checkout: checkout,
+        toggleOrder: toggleOrder,
+        startChat: startChat,
+        sendMessage: sendMessage
+    };
+
+    document.addEventListener('DOMContentLoaded', boot);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,1583 @@
+# App.js 程式碼說明文件
+
+> 行動商城 App —— Expo SDK 57 / React Native 0.86 / React 19
+> 後端：`api.php`（MariaDB + PDO）
+> 檔案位置：[App.js](App.js)（約 1810 行，單檔架構）
+
+---
+
+## 目錄
+
+0. [與網頁版 index.html 的功能對照](#與網頁版-indexhtml-的功能對照)
+1. [專案概觀](#1-專案概觀)
+2. [相依套件與匯入](#2-相依套件與匯入)
+3. [連線設定中心](#3-連線設定中心)
+4. [統一 API 請求層](#4-統一-api-請求層)
+5. [共用工具與元件](#5-共用工具與元件)
+6. [畫面模組](#6-畫面模組)
+   - [6.1 LoginScreen 會員登入註冊](#61-loginscreen-會員登入註冊)
+   - [6.2 HomeScreen 登入後主選單 🆕](#62-homescreen-登入後主選單-)
+   - [6.3 ProductListScreen 無限滾動商品首頁](#63-productlistscreen-無限滾動商品首頁)
+   - [6.4 ProductDetailScreen 商品詳情與評價](#64-productdetailscreen-商品詳情與評價)
+   - [6.5 CartScreen 購物車與結帳（含明細修改 🆕）](#65-cartscreen-購物車與結帳含明細修改-)
+   - [6.6 OrderListScreen 訂單查詢 🆕](#66-orderlistscreen-訂單查詢-)
+   - [6.7 ChatScreen 即時客服對話](#67-chatscreen-即時客服對話)
+7. [Router 路由中心（歷史堆疊版 🆕）](#7-router-路由中心歷史堆疊版-)
+8. [App 根元件](#8-app-根元件)
+9. [樣式表 styles](#9-樣式表-styles)
+10. [API 端點總表](#10-api-端點總表)
+11. [與 api.php 的介接 🆕](#11-與-apiphp-的介接-)
+12. [新版 API 對照表（升級重點）](#12-新版-api-對照表升級重點)
+13. [資料流與狀態圖](#13-資料流與狀態圖)
+14. [已知注意事項](#14-已知注意事項)
+
+> 🆕 標記 = 在原教材版之上新增的功能。
+
+---
+
+## 與網頁版 index.html 的功能對照
+
+手機 App 與 [index.html](index.html) 打的是同一組 API，功能已對齊：
+
+| 功能 | index.html | App.js |
+| --- | --- | --- |
+| 登入 / 註冊 / API 位址設定 | ✅ | ✅ |
+| 登出（呼叫 `/users?action=logout` 撤銷權杖） | ✅ | ✅ 🆕 |
+| 商品目錄（分類名 + **庫存**） | ✅ | ✅ 🆕 |
+| 評價檢視 / 發表 | ✅ | ✅ |
+| 加入購物車（售完鎖定） | ✅ | ✅ 🆕 |
+| 購物車數量增減 / 刪除 / 總計 | ✅ | ✅ |
+| 結帳（`expected_total` 對帳） | ✅ | ✅ |
+| 我的訂單 | ✅ 最近 10 筆 | ✅ 全部 + **可展開明細** |
+| 客服即時對話 | ✅ | ✅ |
+| 帳號被停用時自動登出 | ✅ 🆕 | ✅ 🆕 |
+
+App 額外具備網頁版沒有的：**主選單**、**無限滾動分頁**、**下拉刷新**、
+**Android 實體返回鍵處理**、**安全區域 insets**。
+
+---
+
+## 1. 專案概觀
+
+| 項目 | 內容 |
+| --- | --- |
+| 框架 | Expo SDK `~57.0.12` |
+| React Native | `0.86.2` |
+| React | `19.2.3` |
+| 狀態管理 | 純 React Hooks（無 Redux / Zustand） |
+| 路由 | 自製歷史堆疊 + `switch` 路由（無 React Navigation） |
+| 認證 | HMAC 簽章權杖（`Authorization: Bearer`），登入時由後端簽發 |
+| 本地儲存 | `@react-native-async-storage/async-storage` `2.2.0` |
+| 安全區域 | `react-native-safe-area-context` `~5.7.0` |
+| 狀態列 | `expo-status-bar` `~57.0.1` |
+| 後端 | PHP `api.php` + MariaDB（PDO） |
+| 入口 | [index.js](index.js) → `App.js` 的 `default export` |
+
+### 架構分層
+
+```
+App（SafeAreaProvider + StatusBar）
+ └─ Router（歷史堆疊路由 + Android 返回鍵處理）
+     ├─ LoginScreen        ← 登入 / 註冊 / 連線設定
+     ├─ HomeScreen  🆕     ← 功能中樞主選單
+     │   ├─ ProductListScreen   ← 分類列 + 無限滾動商品清單
+     │   │   └─ ProductDetailScreen ← 商品詳情 + 評價流 + 加入購物車
+     │   ├─ CartScreen          ← 明細修改 🆕 + 結帳（訂單 + 付款）
+     │   ├─ OrderListScreen 🆕  ← 訂單列表 + 展開明細
+     │   └─ ChatScreen          ← 短輪詢即時客服
+
+底層共用：
+ apiRequest()   統一請求層（逾時 / 取消 / JSON 校驗 / 中文化錯誤 / 附掛權杖 / 401 踢回登入）
+ setAuthToken() 登入權杖（記憶體，不落地）
+ getApiUrl()    連線設定中心（AsyncStorage 永久保存）
+ styles         單一 StyleSheet（79 條規則）
+```
+
+---
+
+## 2. 相依套件與匯入
+
+```js
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  ActivityIndicator, Alert, BackHandler, Button, FlatList,
+  KeyboardAvoidingView, Platform, Pressable, RefreshControl,
+  ScrollView, StyleSheet, Text, TextInput, View,
+} from 'react-native';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+```
+
+三個新功能**沒有新增任何套件**：主選單、明細修改、訂單查詢全部用既有的 RN core 元件完成。
+
+**為什麼不從 `react-native` 匯入 `SafeAreaView` / `StatusBar`：**
+
+| 舊寫法 | 問題 | 新寫法 |
+| --- | --- | --- |
+| `react-native` 的 `SafeAreaView` | RN 0.80 起已標記淘汰 | `react-native-safe-area-context` |
+| `react-native` 的 `StatusBar`（`backgroundColor` / `translucent`） | Android 15（API 35）強制 edge-to-edge 後失效 | `expo-status-bar` |
+
+---
+
+## 3. 連線設定中心
+
+檔案位置：[App.js:33-68](App.js#L33-L68)
+
+### 設計動機
+
+把 IP 寫死在常數裡，一旦編譯成 APK 就無法更改 —— 換教室、換 Wi-Fi 整包 App 就報廢。
+因此改成「**預設值 + 可在登入頁修改 + AsyncStorage 永久保存**」。
+
+### 常數
+
+```js
+const DEFAULT_API_URL = 'http://192.168.8.88/api.php'; // ⚠️ 依實際內網調整
+const API_URL_STORAGE_KEY = '@mobile_shop/api_url';
+const REQUEST_TIMEOUT_MS = 10000;
+
+let API_URL = DEFAULT_API_URL;  // 模組層可變狀態
+```
+
+### 三個函式
+
+| 函式 | 匯出 | 說明 |
+| --- | --- | --- |
+| `getApiUrl()` | ✅ | 取得目前 API 位址 |
+| `setApiUrl(url)` | ✅ | 去除頭尾空白與結尾 `/`，空值退回預設；寫入 AsyncStorage（失敗僅影響下次啟動） |
+| `restoreApiUrl()` | ❌（內部） | App 啟動時把儲存值讀回記憶體，失敗則沿用預設 |
+
+### 登入權杖 🆕（[App.js:70-96](App.js#L70-L96)）
+
+| 函式 | 匯出 | 說明 |
+| --- | --- | --- |
+| `setAuthToken(token)` | ✅ | 存入模組層變數；`null` 代表登出 |
+| `getAuthToken()` | ✅ | 取得目前權杖 |
+| `revokeAuthToken()` 🆕 | ✅ | 主動登出：請後端把權杖寫進黑名單 |
+| `setUnauthorizedHandler(fn)` | ✅ | 註冊失效回呼（Router 用來把畫面踢回登入頁） |
+
+> **`revokeAuthToken()` 為什麼必要？**
+> 只清掉前端變數是不夠的 —— 權杖是 HMAC 簽章、無狀態的，沒通知後端的話
+> 那張在 7 天有效期內仍然驗得過（被側錄就等於沒登出）。
+> 它刻意不 `await`、也不走 `apiRequest`：`apiRequest` 會附掛剛被清掉的權杖，
+> 而且登出失敗不該卡住畫面 —— 本機狀態已經清乾淨了。
+
+> **為什麼權杖刻意不存進 AsyncStorage？**
+> 權杖等同帳號密碼，落地就多一個外洩面（root 過的機器、備份、adb backup）。
+> 而且 `currentUserId` 本來也只活在記憶體裡 —— 關掉 App 就要重新登入，行為一致，不會讓使用者困惑。
+> 若要做「記住我」，正確做法是存 refresh token 並搭配裝置金鑰加密，不是直接存這張。
+
+---
+
+## 4. 統一 API 請求層
+
+檔案位置：[App.js:105-180](App.js#L105-L180)
+
+```js
+async function apiRequest(path, { method = 'GET', body, signal: externalSignal } = {})
+```
+
+集中處理七件事：**逾時中斷、外部取消、非 JSON 回應、HTTP 錯誤碼、連線失敗訊息中文化、
+自動附掛登入權杖、401 自動踢回登入頁**。
+`method` 支援 `GET` / `POST` / `PUT` / `DELETE` —— 購物車明細修改就是靠 `PUT` 與 `DELETE`。
+
+### 權杖自動附掛 🆕
+
+```js
+const headers = {};
+if (body) headers['Content-Type'] = 'application/json';
+if (AUTH_TOKEN) {
+  headers.Authorization = `Bearer ${AUTH_TOKEN}`;
+  // Apache 在部分設定下會把 Authorization 標頭吃掉，補一個不會被過濾的備援
+  headers['X-Auth-Token'] = AUTH_TOKEN;
+}
+```
+
+> **為什麼送兩個標頭？**
+> `Authorization` 是標準做法，但 Apache 在 CGI / FastCGI 模式下常常不會把它轉給 PHP
+> （經典的 `$_SERVER['HTTP_AUTHORIZATION']` 為空問題）。
+> `X-Auth-Token` 是自訂標頭，不會被任何一層過濾，當作保險。後端兩個都收。
+
+### 登入階段失效的集中處理 🆕
+
+```js
+// 401 = 權杖過期或無效；ACCOUNT_SUSPENDED（403）= 帳號被管理員停用
+if (response.status === 401 || data?.code === 'ACCOUNT_SUSPENDED') {
+  setAuthToken(null);
+  onUnauthorized?.();          // Router 註冊的回呼 → 清狀態 + 導回登入頁
+  throw new Error(data?.message || '登入已過期，請重新登入');
+}
+```
+
+> 放在請求層而不是各畫面：權杖 7 天過期、帳號隨時可能被停用，任何一支請求都可能撞到。
+> 若讓每個畫面自己判斷，六個畫面就要寫六次同樣的邏輯，還容易漏。
+
+> **為什麼用 `code` 而不是比對訊息文字？**
+> 停用回的是 403（不是 401），而 403 也可能是「權限不足」等其他原因。
+> 後端因此在回應多帶一個機器可讀的 `code: "ACCOUNT_SUSPENDED"` ——
+> 比對中文訊息的話，哪天訊息改個字前端就壞了。
+
+### 雙 signal 合成機制
+
+因為 Hermes 引擎尚未提供 `AbortSignal.timeout()` 與 `AbortSignal.any()`，所以手動合成：
+
+```js
+const controller = new AbortController();
+let timedOut = false;
+const timer = setTimeout(() => { timedOut = true; controller.abort(); }, REQUEST_TIMEOUT_MS);
+
+const forwardAbort = () => controller.abort();
+if (externalSignal) {
+  if (externalSignal.aborted) forwardAbort();
+  else externalSignal.addEventListener('abort', forwardAbort);
+}
+```
+
+→ **畫面卸載（externalSignal）** 或 **逾時**，任一發生就中斷 fetch。
+
+### 錯誤處理流程
+
+```
+fetch
+  ↓
+response.text()  ← 先拿純文字，不直接 .json()
+  ↓
+JSON.parse 失敗 → 「伺服器回傳非 JSON 內容（HTTP xxx），請檢查 api.php 是否有 PHP 錯誤訊息」
+  ↓
+!response.ok    → data.message || data.error || 「伺服器錯誤 HTTP xxx」
+  ↓
+catch:
+  AbortError + timedOut → 「連線逾時，請確認手機與伺服器位於同一個內網」
+  AbortError（卸載）     → 原樣拋出，由呼叫端 isAbort() 忽略
+  Network request failed → 四點排查清單（IP / Wi-Fi / 防火牆 80 埠 / https 憑證）
+  ↓
+finally: clearTimeout + removeEventListener
+```
+
+> **設計要點**：先 `response.text()` 再手動 `JSON.parse`，而非直接 `response.json()`。
+> 因為 PHP 若噴出 warning/notice，回應會變成「HTML 錯誤訊息 + JSON」，直接 `.json()` 只會得到無意義的 parse error。
+
+---
+
+## 5. 共用工具與元件
+
+| 名稱 | 位置 | 說明 |
+| --- | --- | --- |
+| `isAbort(e)` | [App.js:140](App.js#L140) | 判斷「這個錯誤只是畫面卸載造成的取消」，不必彈窗 |
+| `asArray(data)` | [App.js:143](App.js#L143) | 陣列型回應的保險絲，後端回傳非陣列時避免 `FlatList` 崩潰 |
+| `money(n)` 🆕 | [App.js:223](App.js#L223) | 金額格式化：千分位加逗號，整數不補小數（`$29,698` / `$1,234.50`）。刻意不用 `toLocaleString` —— Hermes 的 Intl 支援視建置而定，會與網頁版顯示不一致 |
+| `dedupeByProductId(list)` | [App.js:564](App.js#L564) | 以 `product_id` 去重，供下拉刷新使用 |
+| `pickOrderItems(data)` 🆕 | [App.js:964](App.js#L964) | 訂單明細相容兩種回應格式（`[...]` 或 `{items:[...]}`） |
+| `formatOrderTime(value)` 🆕 | [App.js:969](App.js#L969) | MariaDB DATETIME / ISO 字串 → `YYYY-MM-DD HH:mm` |
+| `<TextLink>` | [App.js:153](App.js#L153) | 用 `Pressable` 取代 `TouchableOpacity` 的文字連結 |
+
+---
+
+## 6. 畫面模組
+
+### 6.1 LoginScreen 會員登入註冊
+
+[App.js:169-307](App.js#L169-L307) · `export function LoginScreen({ onLoginSuccess })`
+
+#### State
+
+| State | 用途 |
+| --- | --- |
+| `email` / `password` / `fullName` | 表單欄位 |
+| `isRegister` | 登入 ↔ 註冊模式切換 |
+| `busy` | 送出中（顯示 ActivityIndicator 取代按鈕） |
+| `showSettings` | 連線設定面板展開狀態 |
+| `apiUrl` / `apiUrlDraft` | 目前生效位址 / 編輯中的草稿 |
+
+#### `handleAuth()` 邏輯
+
+```
+表單驗證（email、password，註冊時另需 fullName）
+  ↓
+isRegister?
+  ├─ 是 → POST /users {email, password, full_name}
+  │        → Alert「註冊成功，請前往登入」→ 切回登入模式、清空密碼
+  └─ 否 → POST /users?action=login {action:'login', email, password}
+           → 檢查 data.user_id 與 data.token 都存在
+           → setAuthToken(data.token)   ← 🆕 必須先設權杖再換頁
+           → onLoginSuccess(data.user_id)   ← 導向 HOME，不再直接跳商品列表
+```
+
+> **順序不能顛倒**：`onLoginSuccess` 一換頁，下一個畫面掛載就立刻發請求。
+> 權杖晚一步設定的話，那批請求會整批 401，反而把使用者彈回登入頁。
+
+缺少 `token` 時會拋出「登入回應缺少 token，請確認伺服器上的 api.php 是最新版」——
+這是最常見的部署失誤（App 更新了、伺服器上的 PHP 沒更新）。
+
+#### UI 要點
+
+- `KeyboardAvoidingView` + `Platform.OS === 'ios' ? 'padding' : 'height'`
+- `ScrollView keyboardShouldPersistTaps="handled"` —— 鍵盤開啟時仍可直接點按鈕
+- TextInput 完整標註 `textContentType` / `autoComplete` / `inputMode`
+- 密碼欄 `autoComplete` 依模式切換 `new-password` ↔ `current-password`
+
+---
+
+### 6.2 HomeScreen 登入後主選單 🆕
+
+[App.js:309-373](App.js#L309-L373) · `export function HomeScreen({ userId, selectedProduct, onNavigate, onLogout })`
+
+#### 為什麼要加
+
+原版登入成功直接跳商品列表，訂單、客服這些**平行功能**只能從商品頁角落的小按鈕進入：
+
+- 使用者不容易發現有哪些功能
+- 返回鍵語意混亂 —— 子頁該退回哪裡？
+
+改成中央主選單後，導覽變成單純的兩層：`登入 → HOME → 各功能`，返回鍵一律「退回上一頁」。
+
+#### 選單設定表（資料驅動）
+
+要加功能只要往 `MENU_ITEMS` 補一筆，不必動 JSX：
+
+```js
+const MENU_ITEMS = [
+  { key: 'PRODUCT_LIST',   icon: '🛍️', title: '商品瀏覽', desc: '無限滾動分頁商品清單',      color: '#3498db' },
+  { key: 'PRODUCT_DETAIL', icon: '🔍', title: '商品詳情', desc: '看評價、寫評價、加入購物車', color: '#16a085', needsProduct: true },
+  { key: 'CART',           icon: '🛒', title: '我的購物車', desc: '改數量、刪明細、行動支付結帳', color: '#2ecc71' },
+  { key: 'ORDER_LIST',     icon: '📋', title: '訂單查詢', desc: '歷史訂單與消費明細',        color: '#e67e22' },
+  { key: 'CHAT',           icon: '💬', title: '即時客服', desc: '專人線上對話',              color: '#9b59b6' },
+];
+```
+
+| 欄位 | 作用 |
+| --- | --- |
+| `key` | 直接當作路由目標傳給 `onNavigate(key)` |
+| `icon` / `title` / `desc` | 卡片顯示內容 |
+| `color` | 卡片左側色條（`borderLeftColor`） |
+| `needsProduct` | 標記此功能需要先選過商品 |
+
+#### `needsProduct` 鎖定機制
+
+`ProductDetailScreen` 需要一個 `product` 物件才能渲染。使用者還沒挑過商品時：
+
+```js
+const locked = item.needsProduct && !selectedProduct;
+```
+
+→ 卡片 `disabled`、套上 `styles.disabled`（opacity 0.4），說明文字改為
+「請先從『商品瀏覽』挑選一件商品」。
+挑過之後則顯示「最近瀏覽：{商品名稱}」，等於一個快捷回訪入口。
+
+> 比起讓使用者點進去看到空白畫面，先鎖住並說明原因是更好的處理。
+
+#### 版面
+
+```
+┌──────────────────────────┐
+│        行動商城           │
+│      會員編號 #12         │
+├──────────────────────────┤
+│ ▌🛍️  商品瀏覽         ›  │  ← borderLeftColor 依功能上色
+│ ▌🔍  商品詳情         ›  │
+│ ▌🛒  我的購物車       ›  │
+│ ▌📋  訂單查詢         ›  │
+│ ▌💬  即時客服         ›  │
+├──────────────────────────┤
+│        [ 登出 ]           │  ← 觸發 confirmLogout（會二次確認）
+└──────────────────────────┘
+```
+
+---
+
+### 6.3 ProductListScreen 無限滾動商品首頁
+
+[App.js:375-562](App.js#L375-L562) · `export function ProductListScreen({ onSelectProduct, onViewCart, onViewChat, onBack })`
+
+> 🔥 全檔核心亮點模組。🆕 新增 `onBack` prop 與「← 主選單」按鈕。
+
+```js
+const PAGE_SIZE = 20; // 需與 api.php 的 $limit 一致
+```
+
+#### State 與 Ref
+
+| 名稱 | 型別 | 用途 |
+| --- | --- | --- |
+| `products` | state | 累加的商品總大陣列 |
+| `categories` | state | 分類資料（水平膠囊列） |
+| `page` | state | 當前 MariaDB 分頁頁碼 |
+| `loadingMore` | state | 是否正在 AJAX 加載中 |
+| `isRefreshing` | state | 下拉刷新狀態機 |
+| `hasMoreData` | state | 資料庫是否還有剩餘資料（供 UI 顯示） |
+| `errorMsg` | state | 載入失敗訊息 |
+| `loadingRef` | **ref** | 🛡️ 真實鎖 |
+| `hasMoreRef` | **ref** | 🛡️ 真實旗標 |
+| `abortRef` | **ref** | 存放 AbortController |
+
+> **為什麼要用 ref 當鎖？**
+> 直接讀 state 的話，在同一次 render 的閉包裡永遠是舊值。快速滑動時會同時發射多次 AJAX，造成同一頁商品重複疊加。
+
+#### `loadProductsPagination(targetPage, isRefreshAction)`
+
+```
+loadingRef.current 為 true → 直接 return（防重入）
+!hasMoreRef.current 且非刷新 → 直接 return（已無資料）
+  ↓
+上鎖 loadingRef = true, setLoadingMore(true)
+  ↓
+GET /products?page=X   ← 後端自動 LIMIT 20 OFFSET (X-1)*20
+  ↓
+newProducts.length < PAGE_SIZE → 關閉無限滾動引擎（hasMoreRef=false）
+  ↓
+setProducts:
+  刷新 → dedupeByProductId(newProducts)（整批覆蓋）
+  追加 → 用 Set 過濾已存在的 product_id 後拼接
+  ↓
+finally: 解鎖 loadingRef、關閉 loadingMore 與 isRefreshing
+```
+
+> **為什麼要去重？**
+> MariaDB 分頁若沒有穩定排序，相鄰兩頁可能吐出同一筆商品。
+> 舊版用 `` `${product_id}-${index}` `` 當 key 只是把重複資料藏起來，畫面上仍會出現兩張一樣的卡片。
+
+#### 無限滾動三劍客
+
+| 屬性 | 值 | 說明 |
+| --- | --- | --- |
+| `onEndReached` | `handleLoadMore` | 滑到底部自動請求 `page + 1` |
+| `onEndReachedThreshold` | `0.5` | 距離底部剩一半高度時提早背景發射 AJAX |
+| `ListFooterComponent` | `renderFooter` | 加載轉圈 / 「已載入全部 N 筆」 |
+
+#### 庫存顯示 🆕
+
+商品卡片右下角標示庫存（`庫存 N 件` / 紅字 `已售完`），與 [index.html](index.html) 的顯示一致 ——
+使用者不必點進去才發現買不到。
+
+商品詳情頁進一步用它鎖住按鈕：售完時「加入購物車」直接 disabled 並顯示「已售完」，
+比讓使用者按下去再收到 409 好。
+
+```js
+// 商品列表帶進來的庫存快照。沒有這個欄位時（例如舊版後端）不做售完判斷，
+// 讓後端的 409 庫存檢查當最後一道關卡。
+const soldOut =
+  product?.stock_quantity !== undefined &&
+  product?.stock_quantity !== null &&
+  Number(product.stock_quantity) <= 0;
+```
+
+> 注意這是**快照**：清單載入後別人可能買走最後一件。前端的鎖只是體驗優化，
+> 真正的把關仍在後端下單事務的條件式扣減。
+
+#### 導覽列（🆕 三顆按鈕）
+
+```jsx
+<View style={styles.navRow}>
+  <Button title="← 主選單" onPress={onBack}     color="#7f8c8d" />
+  <Button title="購物車"   onPress={onViewCart} color="#2ecc71" />
+  <Button title="客服"     onPress={onViewChat} color="#9b59b6" />
+</View>
+```
+
+購物車與客服的捷徑保留 —— 逛商品時直接跳過去比先退回主選單順手。
+
+---
+
+### 6.4 ProductDetailScreen 商品詳情與評價
+
+[App.js:622-723](App.js#L622-L723) · `export function ProductDetailScreen({ product, onBack })`
+
+> 🆕 `userId` prop 已移除 —— 身分由權杖決定，前端沒有需要傳的東西了。
+
+#### 三個動作
+
+| 函式 | 端點 | 行為 |
+| --- | --- | --- |
+| `fetchReviews()` | `GET /reviews?product_id=X` | 公開端點；失敗**不彈窗**，僅清空列表，保持商品資訊可讀 |
+| `addToCart()` | `POST /cart` | body `{product_id, quantity: 1}`；庫存不足會收到 409 中文訊息 |
+| `submitReview()` | `POST /reviews` | body `{product_id, rating: 5, comment}`，成功後 `await fetchReviews()` 局部無刷新渲染 |
+
+#### 評價渲染
+
+```jsx
+<Text>{`${'⭐'.repeat(Number(r.rating) || 5)} ${r.full_name}: ${r.comment}`}</Text>
+```
+
+`key` 使用 `String(r.review_id)`。無評價時顯示「尚無評價，成為第一位留言者」。
+
+> 🆕 返回按鈕文字改為「← 返回上一頁」—— 因為現在可能從商品列表進來，也可能從主選單的「商品詳情」快捷進來。
+
+---
+
+### 6.5 CartScreen 購物車與結帳（含明細修改 🆕）
+
+[App.js:725-990](App.js#L725-L990) · `export function CartScreen({ onBack })`
+
+#### 新增能力總覽
+
+| 操作 | UI | 端點 |
+| --- | --- | --- |
+| 數量 −1 | 圓形 `−` 按鈕 | `PUT /cart`（**覆寫**數量，非累加） |
+| 數量 +1 | 圓形 `＋` 按鈕 | `PUT /cart` |
+| 數量減到 0 | 自動轉為「移除商品」二次確認 | `DELETE /cart?cart_id=Y` |
+| 單筆刪除 | 🗑 刪除文字連結 | `DELETE /cart?cart_id=Y` |
+
+#### State
+
+| State | 用途 |
+| --- | --- |
+| `cartItems` | 購物車明細 |
+| `loading` | 整頁首次載入轉圈 |
+| `busy` | 結帳進行中 |
+| `pendingIds` 🆕 | `Set<cart_id>`，哪幾筆明細正在送出 |
+
+`pendingIds` 用 `Set` 而不是單一 `pendingId`，因為使用者可能同時操作不同列 ——
+第 3 筆還在送出時，第 5 筆的按鈕不該被連坐鎖住。
+
+```js
+const markPending = useCallback((cartId, on) => {
+  setPendingIds((prev) => {
+    const next = new Set(prev);           // 必須複製，直接 mutate 不會觸發 re-render
+    if (on) next.add(String(cartId));
+    else next.delete(String(cartId));
+    return next;
+  });
+}, []);
+```
+
+#### 樂觀更新（Optimistic UI）
+
+內網延遲 200~500ms 的情況下，每按一次 `＋` 都要等伺服器回來才動，體感會很鈍。
+因此改成「**畫面先動、請求在背景送、失敗才回滾**」：
+
+```js
+const applyDelta = (d) =>
+  setCartItems((list) =>
+    list.map((i) =>
+      String(i.cart_id) === cartId ? { ...i, quantity: Number(i.quantity || 0) + d } : i
+    )
+  );
+
+applyDelta(delta);                                    // ① 畫面先動
+markPending(cartId, true);
+try {
+  await apiRequest('/cart', { method: 'PUT', body: { cart_id, quantity: nextQty } }); // ② 背景送
+} catch (e) {
+  if (!isAbort(e)) {
+    applyDelta(-delta);                               // ③ 失敗用反向 delta 回滾
+    Alert.alert('數量更新失敗', e.message);
+  }
+} finally {
+  markPending(cartId, false);
+}
+```
+
+> **為什麼用「反向 delta」而不是「還原整份快照」？**
+> 快照回滾會把**回滾期間其他成功的操作也一起抹掉**。
+> 反向 delta 只動失敗的那一筆、只抵銷失敗的那一次變更，連續快點也不會算錯。
+
+#### 刪除的失敗處理走另一條路
+
+刪除失敗時**不做本地回滾**，而是直接重新同步：
+
+```js
+setCartItems((list) => list.filter((i) => String(i.cart_id) !== cartId)); // 先從畫面移除
+try {
+  await apiRequest(`/cart?cart_id=${item.cart_id}`, { method: 'DELETE' });
+} catch (e) {
+  if (!isAbort(e)) {
+    Alert.alert('刪除失敗', e.message);
+    await fetchCart(true);   // 以伺服器為準重新同步
+  }
+}
+```
+
+> 因為刪除後要還原就得記住「這筆原本排在第幾位」，猜錯順序反而更亂。
+> 直接重抓最誠實 —— 這也是「以伺服器為準」的常見做法。
+
+`fetchCart(silent)` 的 `silent` 參數就是為此而生：靜默模式不顯示整頁轉圈，
+也不再彈第二個錯誤視窗（呼叫端已經彈過一次了）。
+
+#### 明細卡片版面
+
+```
+┌────────────────────────────────────┐
+│ 📦 藍芽降噪耳機          $3580 TWD │  ← cartItemTopRow
+│ 單價 $1790   [−] 2 [＋]     🗑 刪除 │  ← cartItemBottomRow
+└────────────────────────────────────┘
+```
+
+送出中該列的數字換成小轉圈（`ActivityIndicator`），且 `−` / `＋` / `刪除` 全部 `disabled`。
+
+#### 總計列
+
+```jsx
+<Text style={styles.totalLabel}>{`訂單總計（${totalCount} 件）`}</Text>
+<Text style={styles.totalValue}>{`$${total} TWD`}</Text>
+```
+
+`total` 與 `totalCount` 都用 `useMemo`，購物車有幾十筆時不必每次 re-render 重跑 `reduce`。
+
+#### 支付方式選擇 🆕
+
+RN 沒有 `<select>`。這裡用一排**可點的膠囊**代替 —— 五個選項一眼可見，
+也不必為了下拉選單多裝一個套件：
+
+```
+支付方式
+[📲 App 支付] [💳 信用卡] [📱 行動支付] [🏧 ATM 轉帳] [📦 貨到付款]
+```
+
+選項表 `PAY_OPTIONS` 的 `code` **必須落在 `api.php` 的 `PAYMENT_METHODS` 白名單內**，
+`deferred` 標記結帳當下是否真的收到錢：
+
+```js
+const PAY_OPTIONS = [
+  { code: 'App Pay',      label: 'App 支付',  icon: '📲', deferred: false },
+  { code: 'Credit Card',  label: '信用卡',    icon: '💳', deferred: false },
+  { code: 'Mobile Pay',   label: '行動支付',  icon: '📱', deferred: false },
+  { code: 'ATM Transfer', label: 'ATM 轉帳',  icon: '🏧', deferred: true  },
+  { code: 'COD',          label: '貨到付款',  icon: '📦', deferred: true  },
+];
+```
+
+選到延後付款的方式時，下方出現橘色 `payHint` 提示框說明還要做什麼
+（ATM：請完成轉帳；COD：送達時付款）。
+
+#### `handleCheckout()` 兩段式事務（🆕 金額與支付方式）
+
+```
+1. POST /orders  { expected_total }        ← 不再送 items 與 total_amount
+     後端讀「資料庫裡的購物車」自行組單並算總額
+     後端為 ACID 事務：訂單主檔 + 明細 + 扣庫存 + 清空購物車一次落盤
+     ↓ 檢查 orderData.order_id 存在
+2. POST /payments { order_id, payment_method: <使用者選的>,
+                    transaction_id: `APP-${Date.now()}` }   ← 不再送 amount
+     後端直接讀該訂單的 total_amount，並依支付方式決定付款狀態
+     ↓
+   Alert 標題依 payment_status 分流：
+     success → 「結帳成功」
+     pending → 「訂單已成立」
+   內文直接用後端回的 message
+```
+
+> **訊息為什麼用後端給的？**
+> 即時扣款與延後付款的說法完全不同（「付款成功」vs「請完成轉帳」），
+> 由後端統一決定比前端各自拼字串可靠 —— 後端改了規則，App 不必跟著改。
+
+`expected_total` 只是**對帳用**，不是依據：
+
+```js
+const orderData = await apiRequest('/orders', {
+  method: 'POST',
+  body: { expected_total: total },
+});
+```
+
+> 後端若算出不同金額（結帳前商品調價了）會回 **409** 並附上最新金額，
+> 而不是默默用新價格扣款。前端收到後彈窗並 `fetchCart(true)` 重抓，
+> 讓使用者看到最新價格再決定。庫存不足（409）也走同一條路。
+
+---
+
+### 6.6 OrderListScreen 訂單查詢 🆕
+
+[App.js:992-1223](App.js#L992-L1223) · `export function OrderListScreen({ onBack })`
+
+#### 為什麼要加
+
+結帳後訂單就進了資料庫，原版卻沒有任何地方看得到 ——
+使用者無從確認「我到底買了什麼、付了多少」。
+
+#### 版面
+
+```
+┌──────────────────────────────────┐
+│  共 4 張訂單     累計消費 $12840  │  ← orderSummary（useMemo 統計）
+├──────────────────────────────────┤
+│ 訂單 #1024              $3580  ▸ │
+│ 2026-08-14 13:05       [已付款]  │
+├──────────────────────────────────┤
+│ 訂單 #1019              $2200  ▾ │  ← 展開中
+│ 2026-08-12 09:41       [已出貨]  │
+│ ┌────────────────────────────┐   │
+│ │ 藍芽降噪耳機 x 1     $1790 │   │  ← orderDetailBox（lazy load）
+│ │ 無線滑鼠 x 1          $410 │   │
+│ └────────────────────────────┘   │
+└──────────────────────────────────┘
+```
+
+#### State
+
+| State | 用途 |
+| --- | --- |
+| `orders` | 訂單列表 |
+| `loading` / `isRefreshing` | 首次載入 / 下拉刷新 |
+| `errorMsg` | 列表載入失敗訊息 |
+| `expandedId` | 目前展開的訂單（一次只展開一張） |
+| `detailMap` | `{ [order_id]: { loading, items, error } }` 明細快取 |
+
+#### 明細 lazy load + 快取
+
+```js
+const toggleOrder = useCallback(async (order) => {
+  const id = String(order.order_id);
+  if (expandedId === id) { setExpandedId(null); return; }   // 再點一次收合
+  setExpandedId(id);
+  if (detailMap[id]?.items) return;                          // 已有快取就不重打
+
+  setDetailMap((m) => ({ ...m, [id]: { loading: true } }));
+  const data = await apiRequest(`/order-items?order_id=${order.order_id}`, {...});
+  setDetailMap((m) => ({ ...m, [id]: { loading: false, items: pickOrderItems(data) } }));
+}, [detailMap, expandedId]);
+```
+
+> 不必送 `user_id` —— 後端會用權杖確認這張訂單是本人的，不是就回 404。
+
+> **為什麼不一次全抓？**
+> 一次列 30 張訂單就會一開頁打 30 個請求，內網會直接卡住。
+> 展開才抓、抓過就快取，是清單型畫面的標準做法。
+
+下拉刷新時 `setDetailMap({})` + `setExpandedId(null)` —— 明細快取一併作廢，避免刷新後看到舊明細。
+
+#### 付款資訊區塊 🆕
+
+延後付款（ATM / 貨到付款）的訂單會停在「待出貨」，使用者必須看得到**付款狀態**
+才知道自己還要做什麼。所以展開後分成兩區：
+
+| 區塊 | 內容 |
+| --- | --- |
+| 商品明細 | 商品名 × 數量、小計 |
+| 付款資訊 | 支付方式、付款狀態、收款時間 |
+
+```js
+const PAY_STATUS_LABEL = { success: '✅ 已收款', pending: '⏳ 待收款', cancelled: '✖ 已取消' };
+const PAY_STATUS_COLOR = { success: '#27ae60', pending: '#e67e22', cancelled: '#95a5a6' };
+```
+
+* 未入帳的付款**沒有 `paid_at`**，收款時間顯示 `—` 而不是假時間。
+* 狀態為 `pending` 時，下方顯示 `payPendingNote` 說明還要做什麼。
+
+> 明細改用 `GET /orders?order_id=X` **一次拿齊**主檔 + 明細 + 付款紀錄。
+> 早期版本要打 `/order-items`，而那支端點根本拿不到付款資訊。
+
+#### 回應格式相容
+
+不同 `api.php` 寫法對「訂單明細」的回傳結構不一致，兩種都吃：
+
+```js
+function pickOrderItems(data) {
+  return Array.isArray(data) ? data : asArray(data?.items);
+}
+```
+
+商品名稱欄位也做了多重 fallback：
+
+```js
+it.name ?? it.product_name ?? `商品 #${it.product_id}`
+```
+
+明細列的 `key` 依序退讓：`order_item_id` → `product_id` → `index`（最後保險）。
+
+#### 狀態徽章
+
+> ⚠️ **訂單狀態只表示履約進度，不表示付款。**
+> 付款狀況獨立在 `Payments.status`（見下方「付款資訊」區塊）。
+> 訂單一成立就是「待出貨」，不管錢收到了沒有 —— 因為貨到付款本來就是先出貨才收錢。
+> `pending` / `paid` 是舊制留下的值，只會出現在歷史訂單，標示為「(舊)」。
+
+```js
+const ORDER_STATUS_LABEL = {
+  awaiting_shipment: '待出貨', shipped: '已出貨', completed: '已完成',
+  cancelled: '已取消', pending: '待付款(舊)', paid: '已付款(舊)',
+};
+const ORDER_STATUS_COLOR = {
+  awaiting_shipment: '#8e44ad', shipped: '#3498db', completed: '#27ae60',
+  cancelled: '#e74c3c', pending: '#f39c12', paid: '#2ecc71',
+};
+```
+
+未知狀態值 fallback 為灰色 `#7f8c8d` 並原樣顯示後端字串，不會整個徽章消失。
+
+#### 日期格式
+
+```js
+function formatOrderTime(value) {
+  if (!value) return '';
+  return String(value).replace('T', ' ').slice(0, 16);  // → 'YYYY-MM-DD HH:mm'
+}
+```
+
+同時吃 MariaDB DATETIME（`2026-08-14 13:05:22`）與 ISO 字串（`2026-08-14T13:05:22Z`）。
+欄位名稱相容 `order_date` 與 `created_at`。
+
+---
+
+### 6.7 ChatScreen 即時客服對話
+
+[App.js:1159-1270](App.js#L1159-L1270) · `export function ChatScreen({ userId, onBack })`
+
+```js
+const CHAT_POLL_MS = 2000;
+```
+
+#### 🆕 每位客戶有自己的房間
+
+舊版寫死 `CHAT_ROOM_ID = 1`，所有客戶擠在同一間房 ——
+**每位客戶都看得到別人跟客服講了什麼**。現在改成：
+
+```
+進入畫面 → POST /chat-rooms（不用帶參數，身分來自權杖）
+   ↓ 後端找出自己 status='open' 的房，沒有才開新的
+setRoomId(room.room_id) → 開始輪詢該房的訊息
+```
+
+| State | 用途 |
+| --- | --- |
+| `roomId` | 開房完成前為 `null`，此時顯示「正在為你接通客服...」並鎖住輸入框 |
+| `roomError` | 開房失敗的訊息；失敗就**不進入輪詢**，否則每 2 秒噴一次同樣的錯 |
+
+後端每次讀寫訊息都會驗成員資格（`assert_room_member`），非成員回 403。
+訊息會一併回傳 `sender_role`，客服訊息前面加上 `🎧 …（客服）` 徽章。
+
+> 詳細的角色與聊天室模型見 [README-角色與後台.md](README-角色與後台.md)。
+
+#### 遞迴 setTimeout 短輪詢
+
+```js
+const tick = async () => {
+  await fetchMessages();
+  if (!controller.signal.aborted) timer = setTimeout(tick, CHAT_POLL_MS);
+};
+tick();
+
+return () => { controller.abort(); if (timer) clearTimeout(timer); };
+```
+
+> **為什麼不用 `setInterval`？**
+> `setInterval` 在網路變慢時會不斷把請求排進佇列，堆成雪崩。
+> 遞迴 `setTimeout` 保證「上一輪跑完才排下一輪」。
+
+另加 `inFlightRef` 二重保險。輪詢失敗保持靜默 —— 否則每 2 秒彈一次警告視窗。
+
+#### `handleSendMessage()`
+
+```
+text = inputText.trim()，空則 return
+先清空輸入框（樂觀 UI）
+  ↓
+POST /messages {room_id, sender_id, message_text}
+  ↓ 成功 → await fetchMessages() 立刻刷新
+  ↓ 失敗 → setInputText(text) 把內容還給使用者，再 Alert
+```
+
+#### 聊天 UI 細節
+
+- `onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}` —— 新訊息自動捲到底
+- 氣泡樣式依 `String(item.sender_id) === String(userId)` 分為 `myMessage`（右、綠）/ `otherMessage`（左、白）
+- `submitBehavior="submit"` —— RN 0.83 起 `blurOnSubmit` 改名；`'submit'` 表示送出後不收鍵盤
+
+---
+
+## 7. Router 路由中心（歷史堆疊版 🆕）
+
+[App.js:1271-1406](App.js#L1271-L1406) · `function Router()`（未匯出）
+
+### 為什麼從單一字串改成堆疊
+
+加了主選單之後，畫面關係從「單層」變成三層，
+原本 `const [currentScreen, setCurrentScreen] = useState('LOGIN')` 就出現歧義：
+
+> 購物車可能是從 **HOME** 進來，也可能是從 **商品列表** 進來 —— 按返回鍵該退回哪裡？
+
+改成最小的歷史堆疊，語意自然就對了：
+
+```js
+const [history, setHistory] = useState(['LOGIN']);
+const currentScreen = history[history.length - 1];
+
+const navigate = useCallback((screen) => {
+  // 已經在同一頁就不重複 push，避免連點兩下要按兩次返回才離開
+  setHistory((h) => (h[h.length - 1] === screen ? h : [...h, screen]));
+}, []);
+
+const goBack = useCallback(() => {
+  setHistory((h) => (h.length > 1 ? h.slice(0, -1) : h));
+}, []);
+
+/** 清空堆疊並落在指定畫面 */
+const resetTo = useCallback((screen) => setHistory([screen]), []);
+```
+
+| 函式 | 用途 |
+| --- | --- |
+| `navigate(screen)` | push 一層（進入子頁） |
+| `goBack()` | pop 一層（所有子頁的 `onBack`） |
+| `resetTo(screen)` | 清空堆疊（登入成功 → `HOME`；登出 → `LOGIN`） |
+
+> `resetTo` 是必要的：登入成功若只 `navigate('HOME')`，堆疊會變成
+> `['LOGIN', 'HOME']`，返回鍵就會退回已失效的登入頁。
+
+### 其他 State
+
+| State | 說明 |
+| --- | --- |
+| `currentUserId` | 登入後的使用者 ID |
+| `selectedProduct` | 進入詳情頁時帶入的商品物件（也供 HOME 判斷是否解鎖「商品詳情」） |
+| `ready` | 等待 AsyncStorage 讀回 API 位址；未就緒顯示全屏轉圈 |
+
+### 登入 / 登出
+
+```js
+const handleLoginSuccess = (id) => { setCurrentUserId(id); resetTo('HOME'); };
+
+/** 只清本機狀態 —— 用於「權杖已經無效」的情況（過期、帳號被停用） */
+const clearSession = () => {
+  setAuthToken(null);
+  setCurrentUserId(null);
+  setSelectedProduct(null);   // 一併清掉，避免下一位使用者看到上一位的瀏覽紀錄
+  resetTo('LOGIN');
+};
+
+/** 🆕 使用者主動登出：先請後端把權杖列入黑名單，再清本機 */
+const handleLogout = () => {
+  revokeAuthToken();
+  clearSession();
+};
+
+// 權杖過期或帳號被停用時自動踢回登入頁
+useEffect(() => {
+  setUnauthorizedHandler(clearSession);
+  return () => setUnauthorizedHandler(null);
+}, [clearSession]);
+
+const confirmLogout = () => Alert.alert('確認登出', '要離開商城並返回登入頁嗎？', [
+  { text: '取消', style: 'cancel' },
+  { text: '登出', style: 'destructive', onPress: handleLogout },
+]);
+```
+
+`confirmLogout` 同時給主選單的「登出」按鈕與 Android 返回鍵使用，行為一致。
+
+> 分成 `clearSession` 與 `handleLogout` 兩支是刻意的：收到 401／停用時那張權杖**本來就已經無效**，
+> 再打一次登出 API 只是白費一個請求。
+
+### Android 實體返回鍵（🆕 簡化）
+
+| 目前畫面 | 返回鍵行為 | 回傳值 |
+| --- | --- | --- |
+| `LOGIN` | 交還系統 → 離開 App | `false` |
+| `HOME` | 彈出「確認登出」對話框 | `true` |
+| 其他所有畫面 | `goBack()` 退回堆疊上一層 | `true` |
+
+```js
+const subscription = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+return () => subscription.remove();
+```
+
+> 舊版要為每個畫面寫死「退回商品列表」；現在只剩三條規則，新增畫面不必再改這裡。
+> RN 0.73 起 `BackHandler.removeEventListener` 已移除，必須用 `subscription.remove()`。
+
+### 路由表
+
+```js
+switch (currentScreen) {
+  case 'HOME':           → <HomeScreen userId selectedProduct onNavigate={navigate} onLogout={confirmLogout} />
+  case 'PRODUCT_LIST':   → <ProductListScreen onSelectProduct onViewCart onViewChat onBack={goBack} />
+  case 'PRODUCT_DETAIL': → <ProductDetailScreen product={selectedProduct} onBack={goBack} />
+  case 'CART':           → <CartScreen onBack={goBack} />
+  case 'ORDER_LIST':     → <OrderListScreen onBack={goBack} />
+  case 'CHAT':           → <ChatScreen userId onBack={goBack} />
+  case 'LOGIN': default: → <LoginScreen onLoginSuccess={handleLoginSuccess} />
+}
+```
+
+> 🆕 `CartScreen` / `OrderListScreen` / `ProductDetailScreen` 的 `userId` prop 已移除 ——
+> 身分由權杖決定，傳了也沒用，留著反而讓人以為那是權限來源。
+> `HomeScreen` 留著是為了顯示「會員編號 #12」，`ChatScreen` 留著是為了判斷聊天氣泡靠左還靠右。
+
+---
+
+## 8. App 根元件
+
+[App.js:1408-1409 前](App.js#L1408) · `export default function App()`
+
+```jsx
+<SafeAreaProvider>
+  <SafeAreaView style={styles.safeArea} edges={['top', 'bottom', 'left', 'right']}>
+    <StatusBar style="dark" />
+    <Router />
+  </SafeAreaView>
+</SafeAreaProvider>
+```
+
+`SafeAreaProvider` + `SafeAreaView`（safe-area-context）取代原本硬寫的 `paddingTop: StatusBar.currentHeight`。
+Android 15 起系統強制 edge-to-edge，只有 insets 才能正確避開瀏海 / 打孔螢幕 / 手勢導覽列。
+
+---
+
+## 9. 樣式表 styles
+
+[App.js:1411 起](App.js#L1411) · 單一 `StyleSheet.create`，共 **79 條規則**（原 46 條 + 新增 33 條）。
+
+### 配色語彙
+
+| 色碼 | 用途 |
+| --- | --- |
+| `#f8f9fa` | 頁面底色 |
+| `#3498db` | 主藍：連結、轉圈、評價卡左邊條、商品瀏覽 |
+| `#16a085` | 青綠：商品詳情選單項 🆕 |
+| `#2ecc71` | 綠：購物車 / 結帳 |
+| `#e67e22` | 橘：加入購物車、訂單查詢 |
+| `#9b59b6` | 紫：即時客服 |
+| `#e74c3c` | 紅：價格、總計、刪除、登出 |
+| `#f39c12` / `#27ae60` | 訂單狀態徽章：待付款 / 已完成 🆕 |
+| `#2c3e50` / `#34495e` | 深藍灰：標題、分類膠囊、設定 |
+| `#7f8c8d` / `#95a5a6` / `#9aa5ac` / `#bdc3c7` | 灰階：次要文字、placeholder、箭頭 |
+| `#dcf8c6` | 自己的聊天氣泡 |
+
+### 樣式分組
+
+| 群組 | 樣式名稱 |
+| --- | --- |
+| 版面 | `safeArea` `screen` `loginBody` `centered` `flexGrow` `bottomSpacer` |
+| 互動狀態 | `pressed`（opacity 0.6） `disabled`（opacity 0.4） |
+| 文字 | `title` `sectionTitle` `linkText` |
+| 表單 | `input` |
+| 商品 | `navRow` `categoryRow` `categoryRowContent` `categoryBadge` `categoryBadgeText` `productCard` `productName` `productCategory` `productBottomRow` 🆕 `productPrice` `productStock` 🆕 `productSoldOut` 🆕 |
+| 詳情 | `detailTitle` `detailDesc` `detailPrice` `divider` `reviewCard` |
+| 購物車 | `cartItem` `cartItemTopRow` 🆕 `cartItemBottomRow` 🆕 `cartItemName` `cartItemPrice` `cartItemUnit` 🆕 `qtyBox` 🆕 `qtyBtn` 🆕 `qtyBtnText` 🆕 `qtyValue` 🆕 `removeText` 🆕 `totalRow` `totalLabel` `totalValue` |
+| 主選單 🆕 | `homeHeader` `homeSubtitle` `menuGrid` `menuCard` `menuIcon` `menuTextBox` `menuTitle` `menuDesc` `menuArrow` |
+| 訂單查詢 🆕 | `orderSummary` `orderSummaryText` `orderSummaryAmount` `orderCard` `orderHeader` `orderHeaderLeft` `orderHeaderRight` `orderNo` `orderDate` `orderAmount` `orderStatus` `orderChevron` `orderDetailBox` `orderDetailRow` `orderDetailName` `orderDetailPrice` `orderDetailError` |
+| 聊天 | `myMessage` `otherMessage` `messageSender` `chatInputRow` `chatInput` |
+| 狀態提示 | `loadingFooter` `loadingFooterText` `emptyBox` `emptyText` `emptyInline` |
+| 連線設定 | `settingsToggle` `settingsBox` `settingsHint` |
+
+---
+
+## 10. API 端點總表
+
+Base URL 由 `getApiUrl()` 決定（預設 `http://192.168.8.88/api.php`）。
+**🔒 欄位表示需要權杖**（`Authorization: Bearer <token>`），未帶或過期一律回 401。
+
+| 🔒 | 方法 | 路徑 | 呼叫者 | Request Body | 預期回應 |
+| --- | --- | --- | --- | --- | --- |
+| | `POST` | `/users` | LoginScreen | `{email, password, full_name}` | 註冊結果 |
+| | `POST` | `/users?action=login` | LoginScreen | `{action:'login', email, password}` | `{user_id, role, home, token, expires_in, user}` |
+| | `GET` | `/categories` | ProductListScreen | — | `[{category_id, category_name}]` |
+| | `GET` | `/products?page=N` | ProductListScreen | — | `[{product_id, name, price, category_name, description}]`（每頁 20 筆） |
+| | `GET` | `/reviews?product_id=X` | ProductDetailScreen | — | `[{review_id, rating, full_name, comment}]` |
+| 🔒 | `POST` | `/reviews` | ProductDetailScreen | `{product_id, rating, comment}` | 作者取自權杖 |
+| 🔒 | `GET` | `/cart` | CartScreen | — | `[{cart_id, name, price, quantity}]` |
+| 🔒 | `POST` | `/cart` | ProductDetailScreen | `{product_id, quantity}` | 數量**累加**；超庫存回 409 |
+| 🔒 🆕 | `PUT` | `/cart` | CartScreen | `{cart_id, quantity}` | 數量**覆寫**；超庫存回 409 |
+| 🔒 🆕 | `DELETE` | `/cart?cart_id=Y` | CartScreen | — | — |
+| 🔒 | `POST` | `/orders` | CartScreen | `{expected_total}` | `{order_id, total_amount}`；金額不符或缺貨回 409 |
+| 🔒 🆕 | `GET` | `/orders` | OrderListScreen | — | `[{order_id, created_at, total_amount, status}]` |
+| 🔒 🆕 | `GET` | `/orders?order_id=X` | OrderListScreen | — | 單一訂單**完整資訊**：主檔 + `items[]` + `payment`；一次拿齊 |
+| 🔒 | `POST` | `/payments` | CartScreen | `{order_id, payment_method, transaction_id}` | 金額由後端讀訂單決定；回 `{payment_status, order_status, message}` |
+| 🔒 🆕 | `POST` | `/chat-rooms` | ChatScreen | — | `{room_id}`；取得或建立自己的客服房 |
+| 🔒 | `GET` | `/messages?room_id=X` | ChatScreen | — | `[{message_id, sender_id, sender_name, sender_role, message_text}]`；非成員回 403 |
+| 🔒 | `POST` | `/messages` | ChatScreen | `{room_id, message_text}` | 寄件者取自權杖 |
+
+> 公開端點只剩三支：**登入 / 註冊、商品瀏覽、評價閱讀**。
+> 其餘讀寫都要求權杖，且 `user_id` 一律由後端從權杖解出 —— 前端送的會被忽略。
+
+#### 支付方式白名單
+
+`POST /payments` 的 `payment_method` **必須**是下列其一，否則回 400：
+
+| 代碼 | 標籤 | 結算 | 建立後付款狀態 |
+| --- | --- | --- | --- |
+| `App Pay` | App 支付 | 即時 | `success` |
+| `Credit Card` | 信用卡 | 即時 | `success` |
+| `Mobile Pay` | 行動支付 | 即時 | `success` |
+| `ATM Transfer` | ATM 轉帳 | 延後 | `pending` |
+| `COD` | 貨到付款 | 延後 | `pending` |
+
+> **付款不改動訂單狀態**。訂單一律停在 `awaiting_shipment`（待出貨）等倉管處理；
+> 收到錢與否只反映在 `Payments.status`。兩條流程互不干涉 ——
+> 因為貨到付款本來就是「先出貨才收錢」，用同一個欄位表達必然打結。
+
+### 前端依賴的欄位名稱
+
+| 資源 | 必要欄位 |
+| --- | --- |
+| 商品 | `product_id`（作 key）、`name`、`price`、`description`、`category_name`（選填） |
+| 分類 | `category_id`、`category_name` |
+| 評價 | `review_id`、`rating`、`full_name`、`comment` |
+| 購物車 | `cart_id`、`name`、`price`、`quantity` |
+| 🆕 訂單 | `order_id`、`total_amount`、`created_at`（或 `order_date`）、`status`（選填） |
+| 🆕 訂單明細 | `quantity`、`price_at_purchase`（或 `price`）、`name`（或 `product_name` / `product_id`）、`order_item_id`（選填） |
+| 訊息 | `message_id`、`sender_id`、`sender_name`、`message_text` |
+
+---
+
+## 11. 與 api.php 的介接 🆕
+
+新增三個功能後，比對 [api.php](api.php) 找出 **3 處不相容**。
+結論是：**api.php 只補了 1 個分支，其餘 3 處改前端**（因為後端已有更好的現成端點）。
+
+### 11-1. 相容性檢查結果
+
+| 前端呼叫 | api.php 原本狀況 | 若不處理的後果 | 處置 |
+| --- | --- | --- | --- |
+| `PUT /cart` | `case 'cart'` 只有 GET / POST / DELETE | 無 method 命中 → 回空 body → 數量改不動 | **改後端**：新增 PUT 分支 |
+| `DELETE /cart?cart_id=X` | DELETE 吃的是 `user_id` + `product_id` | `$user_id` 為 null → 400「必須提供 user_id」 | 改前端帶 `user_id`；後端一併支援 `cart_id` |
+| `GET /orders?order_id=X` | `orders` 的 GET 只認 `user_id` | 掉進 `else` → 回傳**全站所有訂單**，被當成明細渲染 | **改前端**：改用既有的 `order-items` |
+
+> 第三項最危險 —— 它不會報錯，只是安靜地渲染錯誤資料。
+> [api.php:389-411](api.php#L389-L411) 本來就有寫得正確的 `order-items` 端點，前端改指過去即可。
+
+### 11-2. api.php 唯一的實質新增：`PUT /cart`
+
+位置：[api.php:244-287](api.php#L244-L287)
+
+```php
+} elseif ($method === 'PUT') { // 🆕 直接指定數量（App 購物車明細的 − / ＋ 按鈕）
+    $cart_id  = (int)($input['cart_id'] ?? 0);
+    $quantity = (int)($input['quantity'] ?? 0);
+    if ($cart_id <= 0 || $quantity < 1) {
+        http_response_code(400);
+        echo json_encode(["message" => "需提供 cart_id 與大於 0 的 quantity"]);
+        break;
+    }
+
+    // 🛡️ 先比對 user_id 確認這筆明細是本人的，避免改到別人的購物車
+    $stmt = $pdo->prepare("SELECT cart_id FROM Cart WHERE cart_id = ? AND user_id = ?");
+    $stmt->execute([$cart_id, $user_id]);
+    if (!$stmt->fetch()) {
+        http_response_code(404);
+        echo json_encode(["message" => "找不到該購物車明細"]);
+        break;
+    }
+
+    $stmt = $pdo->prepare("UPDATE Cart SET quantity = ?, updated_at = NOW() WHERE cart_id = ?");
+    $stmt->execute([$quantity, $cart_id]);
+    echo json_encode(["message" => "數量已更新", "cart_id" => $cart_id, "quantity" => $quantity]);
+}
+```
+
+#### ⚠️ POST 與 PUT 的關鍵差異
+
+| 方法 | SQL | 語意 |
+| --- | --- | --- |
+| `POST /cart` | `quantity = quantity + ?` | **累加**（商品詳情頁的「加入購物車」） |
+| `PUT /cart` 🆕 | `quantity = ?` | **覆寫**（購物車頁的 − / ＋） |
+
+> 明細調整**必須用覆寫**。若沿用 POST 的累加語意，按 5 次 `＋` 會變成 `1+2+3+4+5`。
+
+#### 為什麼不用 `rowCount()` 判斷成敗
+
+`UPDATE` 在「新值與原值相同」時 MySQL 回傳 `rowCount() === 0`，
+拿它判斷會把「數量沒變」誤判成「找不到明細」。
+所以改成先 `SELECT` 驗證存在與擁有者，再無條件 `UPDATE`。
+
+### 11-3. api.php 的 `DELETE /cart` 向下相容擴充
+
+位置：[api.php:288-302](api.php#L288-L302)
+
+```php
+} elseif ($method === 'DELETE') {
+    // 🆕 優先用 cart_id（明細真正的主鍵）；沒帶時退回原本的 product_id 介面
+    $cart_id = (int)($_GET['cart_id'] ?? 0);
+    if ($cart_id > 0) {
+        $stmt = $pdo->prepare("DELETE FROM Cart WHERE cart_id = ? AND user_id = ?");
+        $stmt->execute([$cart_id, $user_id]);
+    } else {
+        $stmt = $pdo->prepare("DELETE FROM Cart WHERE user_id = ? AND product_id = ?");
+        $stmt->execute([$user_id, $_GET['product_id'] ?? 0]);
+    }
+    echo json_encode(["message" => "商品已成功移出購物車"]);
+}
+```
+
+舊的 `?product_id=` 呼叫端不必跟著改；兩條路徑都比對 `user_id`，限定只能刪自己的。
+
+### 11-4. 前端配合的三處修正
+
+| 位置 | 修正 |
+| --- | --- |
+| `changeQuantity` | PUT body 補上 `user_id` —— `case 'cart'` 在分派 method 前就會先檢查 `user_id` |
+| `removeItem` | URL 改為 `/cart?user_id=X&cart_id=Y` |
+| `toggleOrder` | 端點改為 `/order-items?order_id=X&user_id=Y` |
+| `orderItemUnitPrice()` | 新增：`Order_Items` 的單價欄位叫 **`price_at_purchase`**（下單當時的價格快照），不是 `price` |
+
+```js
+/** 訂單明細的單價欄位在 Order_Items 表叫 price_at_purchase，舊寫法可能只給 price，兩者都吃 */
+function orderItemUnitPrice(item) {
+  return Number(item?.price_at_purchase ?? item?.price ?? 0);
+}
+```
+
+> `price_at_purchase` 是刻意的設計 —— 訂單要記錄**下單當時**的價格，
+> 商品事後調價不該影響歷史訂單金額。
+
+### 11-5. 已確認相容、不必改的部分
+
+| 項目 | 狀況 |
+| --- | --- |
+| CORS | [api.php:7](api.php#L7) 的 `Allow-Methods` 已含 `PUT, DELETE`；[api.php:11-14](api.php#L11-L14) 也處理了 OPTIONS 預檢 |
+| 訂單列表 | `SELECT * FROM Orders` 已含 `created_at` / `total_amount` / `status`，前端 `order_date \|\| created_at` fallback 直接命中 |
+| 訂單狀態值 | 後端只產生 `'pending'`（建單）與 `'paid'`（付款後），前端 `ORDER_STATUS_LABEL` 兩者都有對應 |
+| PUT/DELETE 的 body | [api.php:40](api.php#L40) 已用 `file_get_contents('php://input')` 統一讀取，不依賴 `$_POST` |
+
+### 11-6. 前端保留的 fallback
+
+即使日後換後端，前端已預留：
+
+| 前端讀取 | 可接受的欄位 |
+| --- | --- |
+| 訂單日期 | `order_date` 或 `created_at`；缺少則顯示「（無日期資料）」 |
+| 明細單價 | `price_at_purchase` 或 `price` |
+| 明細商品名 | `name` → `product_name` → `商品 #{product_id}` |
+| 明細回應格式 | `[...]` 或 `{ items: [...] }` |
+| 訂單狀態 | 未知值以灰色徽章原樣顯示；`status` 缺少則不顯示徽章 |
+
+---
+
+### 11-7. 一併補上的三個既有缺口 🆕
+
+這三項在原版 `api.php` 就存在，不是新功能造成的，但因為新功能會放大它們的影響，一併修掉。
+
+#### ① 購物車不檢查庫存
+
+| 位置 | 修正 |
+| --- | --- |
+| `POST /cart`（[api.php:200-243](api.php#L200-L243)） | 比對 **`購物車現有數量 + 本次追加` ≤ 庫存** |
+| `PUT /cart`（[api.php:271-277](api.php#L271-L277)） | PUT 是覆寫，直接比對 **`新數量` ≤ 庫存** |
+
+> POST 一定要加上「現有數量」再比 —— 只看本次的話，
+> 按 10 次「加入購物車」就能把庫存 3 件的商品堆到 10 件。
+
+庫存不足回 **409 Conflict**（不是 400），訊息帶上商品名與剩餘量：
+
+```json
+{ "message": "「藍芽降噪耳機」庫存不足，目前僅剩 3 件（購物車已有 2 件）" }
+```
+
+前端 `apiRequest` 會把 `data.message` 抽出來丟進 `Alert`，使用者直接看到中文原因。
+
+#### ② 下單不扣庫存
+
+原本訂單事務只寫 Orders / Order_Items 並清空 Cart，庫存永遠不動 —— 賣一萬件也不會缺貨。
+現在在同一個事務內加入**條件式扣減**（[api.php:317-324](api.php#L317-L324)）：
+
+```php
+UPDATE Products SET stock_quantity = stock_quantity - ?
+ WHERE product_id = ? AND stock_quantity >= ?
+```
+
+```php
+$stmtStock->execute([$qty, $pid, $qty]);
+if ($stmtStock->rowCount() === 0) {
+    // WHERE 沒過 → 庫存不足或商品不存在
+    throw new Exception("「{$p['name']}」庫存不足（僅剩 {$p['stock_quantity']} 件）", 409);
+}
+```
+
+> **為什麼把庫存檢查寫進 `WHERE` 而不是先 `SELECT` 再 `UPDATE`？**
+> 分成兩步的話，兩位使用者同時搶最後一件時會**雙雙通過檢查**，然後雙雙扣減 → 庫存變負數（超賣）。
+> 寫進 `WHERE` 讓「檢查」與「扣減」變成一道不可分割的 SQL，資料庫的列鎖會自動排隊。
+
+> **這裡的 `rowCount()` 為什麼可信？**
+> 與 `PUT /cart` 的情況相反 —— 扣減必然改變數值（`$qty >= 1`），
+> 所以回 0 就確定是 WHERE 條件沒過，不會有「值沒變」的誤判。
+
+拋出的例外會觸發既有的 `rollBack()`，**庫存也一併還原**，不會留下「扣了庫存卻沒訂單」的黑帳。
+事務現在同步四張表：`Orders` + `Order_Items` + `Products` + `Cart`。
+
+錯誤碼用 `409` 與 `500` 區分：
+
+```php
+$isStock = ((int)$e->getCode() === 409);
+http_response_code($isStock ? 409 : 500);
+```
+
+> 庫存不足是「使用者狀況」不是「伺服器故障」。用 500 的話訊息會被包成
+> 「建立訂單失敗: ...」，使用者看不出是哪一件商品缺貨。
+
+順帶把驗證失敗的靜默分支補上回應 —— 原本 `if` 不成立時什麼都不 echo，
+前端收到空 body 只能報「訂單建立回應缺少 order_id」這種看不懂的訊息。
+另外把 `!empty($input['total_amount'])` 改成 `isset(...)`，避免總額為 0 時被 `empty()` 判定為缺欄位。
+
+#### ③ 訂單資料沒有擁有者驗證
+
+| 端點 | 原本 | 現在 |
+| --- | --- | --- |
+| `GET /orders` | 不帶 `user_id` → 回傳**全站所有人的訂單** | 一律要求 `user_id`，只回自己的 |
+| `GET /order-items` | 只憑 `order_id` 就給明細 | 要求 `user_id`，先確認訂單屬於本人 |
+
+`order-items` 是這次順帶發現的同類問題 —— 前端剛改用它，若不補，
+把網址裡的號碼改一下就能看到別人買了什麼：
+
+```php
+$stmt = $pdo->prepare("SELECT order_id FROM Orders WHERE order_id = ? AND user_id = ?");
+$stmt->execute([$order_id, $user_id]);
+if (!$stmt->fetch()) { http_response_code(404); ... break; }
+```
+
+> ⚠️ 這只是「以參數自報身分」的最低限度防護，擋得住改網址，擋不住偽造 `user_id`。
+> 真正的解法需要登入權杖（JWT / Session），這支 API 目前沒有。
+> 移除「列出全站訂單」的分支也是同理 —— 沒有身分驗證就無法分辨呼叫者是不是管理員，
+> 日後要做後台總覽應另開一支帶驗證的端點，而不是放行這裡。
+
+---
+
+### 11-8. 登入權杖與金額信任 🆕
+
+前面幾輪的修正都建立在「前端會誠實送 `user_id` 與 `price`」這個假設上。
+這一節把那個假設拿掉 —— 兩者其實是**同一個根因：不能相信前端送來的任何東西**。
+
+#### ① 身分：從參數自報改成 HMAC 簽章權杖
+
+位置：[api.php:38-110](api.php#L38-L110)
+
+```
+登入成功
+  ↓
+issue_token(user_id) → base64url({"uid":12,"exp":...}) . "." . base64url(HMAC-SHA256)
+  ↓
+App 存進記憶體（setAuthToken）
+  ↓
+之後每個請求：Authorization: Bearer <token>  +  X-Auth-Token: <token>
+  ↓
+require_auth() 驗簽 + 驗過期 → 回傳 user_id
+  ↓
+所有 SQL 一律用這個 user_id，忽略前端送的
+```
+
+| 決策 | 理由 |
+| --- | --- |
+| HMAC 簽章而非權杖資料表 | 無狀態，不必改資料庫結構、不必每次請求多查一次表。代價是無法單獨撤銷某張權杖（只能等過期）；要「登出即失效」再加一張 `Revoked_Tokens` 比對即可 |
+| `hash_equals()` 比對簽章 | 定時比對。用 `===` 的話回應時間會隨「第幾個字元開始不同」變化，可以被一個字元一個字元猜出簽章 |
+| 同時送 `Authorization` 與 `X-Auth-Token` | Apache 在 CGI / FastCGI 模式常吃掉 `Authorization`（`$_SERVER['HTTP_AUTHORIZATION']` 為空的經典問題），自訂標頭不會被過濾 |
+| 有效期 7 天 | 教學用途；過期後 App 收到 401 會自動回登入頁 |
+
+密鑰來源（[api.php:57](api.php#L57)）：
+
+```php
+$TOKEN_SECRET = $config['token_secret'] ?? hash('sha256', "$db_name|$username|$password");
+```
+
+> ⚠️ **請在 `db.ini` 加一行** `token_secret = "一串夠長的隨機字元"`。
+> 沒設定時退而由資料庫帳密推導 —— 重點是「同一台機器每次算出同一組密鑰」，否則簽章驗不過。
+> 但這代表密鑰強度等同資料庫密碼，正式上線務必自己設。
+
+各端點的權限重新劃分：
+
+| 端點 | 權限 |
+| --- | --- |
+| `POST /users`（註冊、登入） | 公開 |
+| `GET /categories`、`GET /products` | 公開（商品目錄本來就要能瀏覽） |
+| `GET /reviews` | 公開（評價是公開資訊） |
+| `GET /users` | 🔒 且**只能讀自己**（原本任何人都能撈出全體會員名單含 email） |
+| `POST /categories`、`POST /products` | 🔒 寫入操作 |
+| `cart` / `orders` / `order-items` / `payments` | 🔒 全部，`user_id` 來自權杖 |
+| `reviews` POST、`messages`、`chat-rooms` | 🔒 作者 / 寄件者 / 開房者一律取自權杖，無法冒名 |
+
+#### ② 金額：從採信前端改成後端重算
+
+位置：[api.php:392-425](api.php#L392-L425)
+
+原本 `POST /orders` 直接寫入前端送的 `price` 與 `total_amount` —— 把 `price` 改成 1 就能用 $1 買走商品。
+現在**完全忽略前端送的 `items`**，改由後端讀資料庫的購物車自行組單：
+
+```php
+$stmt = $pdo->prepare(
+    "SELECT c.product_id, c.quantity, p.name, p.price, p.stock_quantity
+       FROM Cart c JOIN Products p ON p.product_id = c.product_id
+      WHERE c.user_id = ?"
+);
+$stmt->execute([$user_id]);
+$cart = $stmt->fetchAll();
+
+$total = 0.0;
+foreach ($cart as $row) { $total += (float)$row['price'] * (int)$row['quantity']; }
+```
+
+明細寫入時 `price_at_purchase` 取自 `Products.price`，不是前端數字。
+
+`POST /payments` 同理（[api.php:530-548](api.php#L530-L548)）：金額直接讀 `Orders.total_amount`，
+順便補上兩道檢查 —— 訂單必須是本人的、且 `status` 必須還是 `pending`（防重複扣款）。
+
+#### `expected_total`：把前端金額降級為「對帳用」
+
+完全不理前端金額有個副作用：使用者看到 $3580、實際被扣 $3600（結帳前調價了）。
+所以保留一個**確認**用途：
+
+```php
+if (isset($input['expected_total']) && abs((float)$input['expected_total'] - $total) > 0.001) {
+    http_response_code(409);
+    echo json_encode([
+        "message"      => "商品價格已變動，最新金額為 $" . fmt_money($total) . " TWD，請重新確認",
+        "total_amount" => $total
+    ]);
+    break;
+}
+```
+
+> 關鍵在於它是**檢查**不是**依據** —— 對不上就中止並要求重新確認，
+> 而不是拿它去扣款。竄改 `expected_total` 只會讓自己的結帳失敗，佔不到便宜。
+
+前端收到 409 後彈窗並 `fetchCart(true)` 重抓，讓使用者看到最新價格再決定。
+
+#### 仍然存在的限制
+
+| 項目 | 說明 |
+| --- | --- |
+| 無法單張撤銷權杖 | 簽章是無狀態的，登出只是前端丟掉權杖；那張權杖在 7 天內仍然有效。要做到「登出即失效」需要一張撤銷表 |
+| 權杖走明文 HTTP | 內網 `http://` 下權杖會裸奔，同網段可被側錄。正式環境必須 HTTPS —— 這點對密碼本來就成立，權杖也一樣 |
+| 客服聊天室未驗成員 | ✅ **已修正**：改成每位客戶一間房 + `assert_room_member()` 成員驗證，見 [README-角色與後台.md](README-角色與後台.md) 第 6 節 |
+| 無管理員角色 | `Users.role` 欄位存在但沒被使用。目前「寫入需登入」的端點（上架商品、建分類）任何會員都能呼叫 |
+
+---
+
+## 12. 新版 API 對照表（升級重點）
+
+程式中以註解特別標示的版本變更：
+
+| 版本 | 舊寫法 | 新寫法 |
+| --- | --- | --- |
+| RN 0.73 | `BackHandler.removeEventListener()` | `subscription.remove()` |
+| RN 0.80 | `react-native` 的 `SafeAreaView` | `react-native-safe-area-context` |
+| RN 0.83 | `blurOnSubmit` | `submitBehavior` |
+| Android 15 | `StatusBar` `backgroundColor`/`translucent` | `expo-status-bar` + safe-area insets |
+| RN 現行建議 | `TouchableOpacity` | `Pressable` |
+| Hermes 限制 | `AbortSignal.timeout()` / `AbortSignal.any()` | 手動合成 `AbortController` |
+| ES2019 | `catch (e) {}` | `catch {}`（可省略參數） |
+
+---
+
+## 13. 資料流與狀態圖
+
+### 畫面轉換（🆕 主選單版）
+
+```
+  LOGIN
+    │ onLoginSuccess(user_id) → resetTo('HOME')
+    ▼
+  HOME ◄───────────────── goBack() ─────────────────┐
+    │                                                │
+    ├─ navigate('PRODUCT_LIST')  ──► PRODUCT_LIST ───┤
+    │                                  │             │
+    │                                  ├─ onSelectProduct
+    │                                  │      ▼
+    │                                  │  PRODUCT_DETAIL ──► goBack() 回 PRODUCT_LIST
+    │                                  ├─ 購物車捷徑 ──► CART
+    │                                  └─ 客服捷徑  ──► CHAT
+    ├─ navigate('PRODUCT_DETAIL') ──► PRODUCT_DETAIL ┤（需已選過商品）
+    ├─ navigate('CART')          ──► CART ───────────┤
+    ├─ navigate('ORDER_LIST')    ──► ORDER_LIST ─────┤
+    ├─ navigate('CHAT')          ──► CHAT ───────────┘
+    │
+    └─ 登出／返回鍵 → confirmLogout → resetTo('LOGIN')
+```
+
+### 歷史堆疊實例
+
+```
+登入                       ['LOGIN']         → resetTo('HOME') → ['HOME']
+點「商品瀏覽」              ['HOME','PRODUCT_LIST']
+點某商品                    ['HOME','PRODUCT_LIST','PRODUCT_DETAIL']
+從詳情頁點購物車捷徑（無）   ─
+按返回                      ['HOME','PRODUCT_LIST']
+按返回                      ['HOME']
+按返回                      → currentScreen === 'HOME' → confirmLogout()
+```
+
+### 購物車明細修改（樂觀更新）
+
+```
+使用者按 [＋]
+   │
+   ├─ pendingIds 已含此 cart_id？ ── 是 ──► 忽略（防連點）
+   │
+   ├─ 新數量 < 1？ ── 是 ──► confirmRemove() 二次確認 ──► DELETE /cart
+   │
+   ▼
+applyDelta(+1)          ← 畫面立刻 +1
+markPending(id, true)   ← 該列鎖住、數字換成轉圈
+   │
+   ├─ PUT /cart 成功 ──► 結束（畫面已是正確值）
+   │
+   └─ PUT /cart 失敗 ──► applyDelta(-1) 反向回滾 + Alert
+                          ↑ 只抵銷這一次變更，不影響期間其他成功操作
+```
+
+### 訂單明細 lazy load
+
+```
+點擊訂單卡片
+   │
+   ├─ 已展開？ ── 是 ──► 收合（expandedId = null）
+   │
+   ▼
+expandedId = order_id
+   │
+   ├─ detailMap 已有 items？ ── 是 ──► 直接渲染快取
+   │
+   ▼
+detailMap[id] = {loading:true}  → 顯示小轉圈
+   │
+GET /order-items?order_id=X
+   │
+   ├─ 成功 → detailMap[id] = {loading:false, items}
+   └─ 失敗 → detailMap[id] = {loading:false, error}  → 卡片內顯示紅字，不彈窗
+```
+
+### 請求生命週期
+
+```
+畫面 mount → new AbortController() → 存入 abortRef
+                    │
+     每次 apiRequest 傳入 signal
+                    │
+        ┌───────────┴───────────┐
+   10 秒逾時                 畫面 unmount
+        │                       │
+   「連線逾時…」          controller.abort()
+                                │
+                        AbortError → isAbort() → 靜默忽略
+```
+
+---
+
+## 14. 已知注意事項
+
+| 項目 | 說明 |
+| --- | --- |
+| **api.php 已同步更新** 🆕 | 已補上 `PUT /cart` 分支並讓 `DELETE /cart` 支援 `cart_id`（詳見 [第 11 節](#11-與-apiphp-的介接-)）。若伺服器上跑的是另一份 `api.php`，記得一併覆蓋 |
+| 明細修改未做防抖 🆕 | 快速連按 `＋` 會逐次送出請求。已用 `pendingIds` 鎖住送出中的列，但沒有合併成一次請求（debounce）。教學上這樣比較好觀察每次 AJAX |
+| 訂單無分頁（App 端） | `GET /orders` 一次撈完自己的訂單。後台的 `staff-orders` 已有 20 筆分頁；App 端訂單量大時應比照辦理 |
+| 庫存檢查已補 ✅ | `POST /cart`、`PUT /cart`、`POST /orders` 三處皆已比對 `stock_quantity`；下單走事務內的條件式扣減防超賣（見 [11-7](#11-7-一併補上的三個既有缺口-)） |
+| 身分驗證已補 ✅ | 改用 HMAC 簽章權杖，`user_id` 一律由後端從權杖解出，前端送的被忽略（見 [11-8](#11-8-登入權杖與金額信任-)） |
+| 金額驗證已補 ✅ | 訂單與付款金額皆由後端讀資料庫計算，前端的 `expected_total` 只當對帳用 |
+| **請先設 `token_secret`** ⚠️ | 在伺服器的 `db.ini` 加一行 `token_secret = "隨機字元"`。未設定時會由資料庫帳密推導，強度等同資料庫密碼 |
+| 權杖撤銷已補 ✅ | 已加入 `Revoked_Tokens` 黑名單，登出即失效。仍無法「登出所有裝置」（黑名單是逐張權杖） |
+| 角色權限已補 ✅ | `Users.role` 已啟用**六種**角色（customer / manager / finance / warehouse / logistics / admin），後台端點驗角色與狀態轉換（見 [README-角色與後台.md](README-角色與後台.md)） |
+| 支付方式可選 🆕 | 購物車提供五種支付方式；延後付款（ATM / 貨到付款）的訂單付款狀態停在 `pending`，待財務確認收款 |
+| 訂單狀態只表示履約 🆕 | `awaiting_shipment` → `shipped` → `completed`。付款狀況在 `Payments.status`，兩者獨立 |
+| 舊制狀態值仍可能出現 🆕 | 歷史訂單可能是 `pending` / `paid`，標籤表已保留並標示「(舊)」 |
+| App 需重新打包才會跟上 ⚠️ | 訂單狀態標籤等字串包在 APK 內。後端改了狀態值，舊版 App 會顯示原始英文（功能不受影響） |
+| 聊天室成員驗證已補 ✅ | 每位客戶一間專屬房 + `assert_room_member()` |
+| 權杖走明文 HTTP ⚠️ | 內網 `http://` 下權杖會裸奔，同網段可側錄。正式環境必須 HTTPS |
+| 併發下的購物車庫存 | `POST` / `PUT /cart` 的庫存檢查是「先查再寫」兩步，理論上仍可搶到超量。但購物車不是承諾成交，真正的把關在下單事務（那裡是原子的），影響有限 |
+| 商品詳情快捷會鎖住 🆕 | 主選單的「商品詳情」在沒選過商品前為 disabled，這是刻意設計 |
+| `PAGE_SIZE = 20` | 必須與 `api.php` 的 `$limit` 保持一致，否則「是否還有下一頁」的判斷會失準 |
+| 分類列僅展示 | `categories` 目前只渲染成膠囊標籤，尚未接上點擊篩選功能 |
+| 評價星等固定 5 | `submitReview` 硬寫 `rating: 5`，尚無星等選擇 UI |
+| 客服房間由後端指派 | App 不再有 `CHAT_ROOM_ID` 常數，改為 `POST /chat-rooms` 取得自己的房號 |
+| 結帳後不重抓購物車 | 成功後前端 `setCartItems([])`，依賴後端已在同一事務中清空 |
+| 短輪詢非 WebSocket | 每 2 秒一次 HTTP 請求；正式環境建議改用 WebSocket / SSE |
+| 支付方式無防抖 | 選了支付方式後直接結帳，沒有二次確認畫面。教學情境足夠，正式商務流程通常會加一步確認頁 |
+| 密碼明文傳輸 | 預設走 `http`（內網教學情境）；正式環境務必改用 HTTPS |
+| 關閉 App 需重新登入 | 權杖刻意不存 AsyncStorage（落地就多一個外洩面），與原本 `currentUserId` 只存記憶體的行為一致 |
+| 檔頭註解 | 註解提到「與專案根目錄的 05-App.js 內容相同」，但目前根目錄並無該檔案 |
+
+---
+
+### 相關文件
+
+- [README-角色與後台.md](README-角色與後台.md) —— 角色權限、後台頁面、客服模型、部署步驟
+- [api.php](api.php) —— 後端 RESTful API（11 張資料表）
+- [MariaDB.sql](MariaDB.sql) / [MariaDB-migration.sql](MariaDB-migration.sql) —— 資料庫結構與升級腳本
+- [README-打包APK.md](README-打包APK.md) —— APK 打包流程
+- [README-改寫說明.md](README-改寫說明.md) —— 舊語法 → 新版本的改寫紀錄
+- [package.json](package.json) —— 相依版本
+- [AGENTS.md](AGENTS.md) —— Expo SDK 57 文件連結
