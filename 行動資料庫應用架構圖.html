@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>行動資料庫應用 - 軟體架構與環境配置</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0b1120;
+            background-image: 
+                radial-gradient(at 0% 0%, rgba(15, 23, 42, 1) 0, transparent 50%), 
+                radial-gradient(at 50% 0%, rgba(8, 145, 178, 0.1) 0, transparent 50%), 
+                radial-gradient(at 100% 0%, rgba(15, 23, 42, 1) 0, transparent 50%);
+            color: #e2e8f0;
+            overflow-x: hidden;
+            min-height: 100vh;
+        }
+
+        /* 網格背景點綴 */
+        .grid-bg {
+            position: fixed;
+            top: 0; left: 0; width: 100vw; height: 100vh;
+            background-image: linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+                              linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+            background-size: 30px 30px;
+            z-index: -1;
+        }
+
+        .glow-text {
+            text-shadow: 0 0 10px rgba(6, 182, 212, 0.8), 0 0 20px rgba(6, 182, 212, 0.4);
+        }
+
+        .tech-card {
+            background: rgba(30, 41, 59, 0.6);
+            border: 1px solid rgba(51, 65, 85, 0.8);
+            backdrop-filter: blur(8px);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            cursor: pointer;
+            position: relative;
+            overflow: hidden;
+        }
+
+        /* 懸停發光與浮動特效 */
+        .tech-card:hover {
+            transform: translateY(-5px) scale(1.02);
+            border-color: #06b6d4;
+            box-shadow: 0 10px 25px -5px rgba(6, 182, 212, 0.4), 0 8px 10px -6px rgba(6, 182, 212, 0.1);
+        }
+
+        .tech-card::before {
+            content: '';
+            position: absolute;
+            top: 0; left: -100%; width: 50%; height: 100%;
+            background: linear-gradient(to right, transparent, rgba(6, 182, 212, 0.1), transparent);
+            transform: skewX(-20deg);
+            transition: all 0.5s;
+        }
+
+        .tech-card:hover::before {
+            left: 150%;
+        }
+
+        .category-title {
+            position: relative;
+            display: inline-block;
+        }
+
+        .category-title::after {
+            content: '';
+            position: absolute;
+            bottom: -5px; left: 0; width: 50px; height: 2px;
+            background: #06b6d4;
+            transition: width 0.3s;
+        }
+        
+        .group:hover .category-title::after {
+            width: 100%;
+        }
+
+        /* Modal 動畫 */
+        .modal-overlay {
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.3s ease;
+            backdrop-filter: blur(5px);
+        }
+        .modal-overlay.active {
+            opacity: 1;
+            visibility: visible;
+        }
+        
+        .modal-content {
+            transform: scale(0.9) translateY(20px);
+            opacity: 0;
+            transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+        .modal-overlay.active .modal-content {
+            transform: scale(1) translateY(0);
+            opacity: 1;
+        }
+    </style>
+</head>
+<body class="relative pb-12">
+    <div class="grid-bg"></div>
+
+    <header class="pt-16 pb-12 text-center px-4 relative z-10">
+        <div class="inline-block mb-4 p-2 rounded-full bg-cyan-900/30 border border-cyan-500/30">
+            <span class="text-cyan-400 text-sm font-semibold tracking-widest uppercase">System Architecture</span>
+        </div>
+        <h1 class="text-4xl md:text-5xl font-bold text-white mb-4 glow-text tracking-tight">行動資料庫應用</h1>
+        <p class="text-slate-400 max-w-2xl mx-auto text-lg">行動電商與即時客服系統 - 開發環境與軟體配置藍圖</p>
+    </header>
+
+    <main class="container mx-auto px-4 md:px-8 max-w-7xl relative z-10">
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            
+            <!-- 第一區塊：後端與資料庫環境 -->
+            <div class="flex flex-col gap-4 group">
+                <h2 class="text-2xl font-semibold text-cyan-300 mb-2 category-title"><i class="fa-solid fa-server mr-2"></i>後端與資料庫環境</h2>
+                
+                <div class="tech-card rounded-xl p-5" onclick="openModal('ubuntu')">
+                    <div class="flex items-center gap-4">
+                        <div class="w-12 h-12 rounded-lg bg-orange-500/20 text-orange-500 flex items-center justify-center text-2xl">
+                            <i class="fa-brands fa-ubuntu"></i>
+                        </div>
+                        <div>
+                            <h3 class="text-lg font-bold text-white">Ubuntu 22.04.5 LTS</h3>
+                            <p class="text-sm text-slate-400">雲端作業系統 (OS)</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="tech-card rounded-xl p-5" onclick="openModal('apache')">
+                    <div class="flex items-center gap-4">
+                        <div class="w-12 h-12 rounded-lg bg-red-500/20 text-red-500 flex items-center justify-center text-2xl">
+                            <i class="fa-solid fa-feather"></i>
+                        </div>
+                        <div>
+                            <h3 class="text-lg font-bold text-white">Apache 2.4.x</h3>
+                            <p class="text-sm text-slate-400">網頁伺服器</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="tech-card rounded-xl p-5" onclick="openModal('php')">
+                    <div class="flex items-center gap-4">
+                        <div class="w-12 h-12 rounded-lg bg-indigo-400/20 text-indigo-400 flex items-center justify-center text-2xl">
+                            <i class="fa-brands fa-php"></i>
+                        </div>
+                        <div>
+                            <h3 class="text-lg font-bold text-white">PHP 8.1 / 8.2</h3>
+                            <p class="text-sm text-slate-400">API 邏輯層解譯器</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="tech-card rounded-xl p-5" onclick="openModal('mariadb')">
+                    <div class="flex items-center gap-4">
+                        <div class="w-12 h-12 rounded-lg bg-blue-300/20 text-blue-300 flex items-center justify-center text-2xl">
+                            <i class="fa-solid fa-database"></i>
+                        </div>
+                        <div>
+                            <h3 class="text-lg font-bold text-white">MariaDB 12.2.x+</h3>
+                            <p class="text-sm text-slate-400">關聯式資料庫系統</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="tech-card rounded-xl p-5" onclick="openModal('heidiSQL')">
+                    <div class="flex items-center gap-4">
+                        <div class="w-12 h-12 rounded-lg bg-yellow-500/20 text-yellow-500 flex items-center justify-center text-2xl">
+                            <i class="fa-solid fa-table-list"></i>
+                        </div>
+                        <div>
+                            <h3 class="text-lg font-bold text-white">HeidiSQL 12.21</h3>
+                            <p class="text-sm text-slate-400">圖形化資料庫管理工具</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 第二區塊：前端與行動開發環境 -->
+            <div class="flex flex-col gap-4 group mt-8 lg:mt-0">
+                <h2 class="text-2xl font-semibold text-purple-400 mb-2 category-title"><i class="fa-solid fa-mobile-screen mr-2"></i>前端與行動開發環境</h2>
+                
+                <div class="tech-card rounded-xl p-5" onclick="openModal('nodejs')">
+                    <div class="flex items-center gap-4">
+                        <div class="w-12 h-12 rounded-lg bg-green-500/20 text-green-500 flex items-center justify-center text-2xl">
+                            <i class="fa-brands fa-node-js"></i>
+                        </div>
+                        <div>
+                            <h3 class="text-lg font-bold text-white">Node.js 18.x / 20.x LTS</h3>
+                            <p class="text-sm text-slate-400">JavaScript 執行環境</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="tech-card rounded-xl p-5" onclick="openModal('reactnative')">
+                    <div class="flex items-center gap-4">
+                        <div class="w-12 h-12 rounded-lg bg-cyan-400/20 text-cyan-400 flex items-center justify-center text-2xl">
+                            <i class="fa-brands fa-react"></i>
+                        </div>
+                        <div>
+                            <h3 class="text-lg font-bold text-white">React Native 0.7x(or Expo) <br><span class="text-xs text-slate-500">or Expo SDK 50+</span></h3>
+                            <p class="text-sm text-slate-400">跨平台行動應用框架</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="tech-card rounded-xl p-5" onclick="openModal('androidstudio')">
+                    <div class="flex items-center gap-4">
+                        <div class="w-12 h-12 rounded-lg bg-green-400/20 text-green-400 flex items-center justify-center text-2xl">
+                            <i class="fa-brands fa-android"></i>
+                        </div>
+                        <div>
+                            <h3 class="text-lg font-bold text-white">Android Studio</h3>
+                            <p class="text-sm text-slate-400">模擬器與 SDK (API 33+)</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 視覺連接裝飾 -->
+                <div class="hidden lg:flex flex-1 items-center justify-center opacity-30 pointer-events-none">
+                    <i class="fa-solid fa-network-wired text-6xl text-purple-500/30"></i>
+                </div>
+            </div>
+
+            <!-- 第三區塊：開發與測試工具 -->
+            <div class="flex flex-col gap-4 group mt-8 lg:mt-0">
+                <h2 class="text-2xl font-semibold text-emerald-400 mb-2 category-title"><i class="fa-solid fa-wrench mr-2"></i>開發與測試工具</h2>
+                
+                <div class="tech-card rounded-xl p-5" onclick="openModal('postman')">
+                    <div class="flex items-center gap-4">
+                        <div class="w-12 h-12 rounded-lg bg-orange-500/20 text-orange-500 flex items-center justify-center text-2xl">
+                            <i class="fa-solid fa-space-shuttle"></i>
+                        </div>
+                        <div>
+                            <h3 class="text-lg font-bold text-white">Postman 12.26.0+</h3>
+                            <p class="text-sm text-slate-400">API 測試與封包發射</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="tech-card rounded-xl p-5" onclick="openModal('vscode')">
+                    <div class="flex items-center gap-4">
+                        <div class="w-12 h-12 rounded-lg bg-blue-500/20 text-blue-500 flex items-center justify-center text-2xl">
+                            <i class="fa-solid fa-code"></i>
+                        </div>
+                        <div>
+                            <h3 class="text-lg font-bold text-white">Visual Studio Code</h3>
+                            <p class="text-sm text-slate-400">程式碼編輯器</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="tech-card rounded-xl p-5" onclick="openModal('git')">
+                    <div class="flex items-center gap-4">
+                        <div class="w-12 h-12 rounded-lg bg-red-400/20 text-red-400 flex items-center justify-center text-2xl">
+                            <i class="fa-brands fa-git-alt"></i>
+                        </div>
+                        <div>
+                            <h3 class="text-lg font-bold text-white">Git 2.55.0</h3>
+                            <p class="text-sm text-slate-400">版本控制與協作</p>
+                        </div>
+                    </div>
+                </div>
+                
+                 <!-- 視覺連接裝飾 -->
+                 <div class="hidden lg:flex flex-1 items-center justify-center opacity-30 pointer-events-none">
+                    <i class="fa-solid fa-microchip text-6xl text-emerald-500/30"></i>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- 互動式資訊彈出視窗 (Modal) -->
+    <div id="infoModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 modal-overlay bg-slate-900/80">
+        <div class="modal-content relative bg-slate-800 border border-cyan-500/50 rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden">
+            <!-- 頂部裝飾線 -->
+            <div class="h-1 w-full bg-gradient-to-r from-cyan-500 via-purple-500 to-emerald-500"></div>
+            
+            <button onclick="closeModal()" class="absolute top-4 right-4 text-slate-400 hover:text-white transition-colors">
+                <i class="fa-solid fa-xmark text-xl"></i>
+            </button>
+            
+            <div class="p-6 md:p-8">
+                <div class="flex items-center gap-3 mb-4">
+                    <div id="modalIcon" class="text-3xl text-cyan-400"></div>
+                    <h3 id="modalTitle" class="text-2xl font-bold text-white">載入中...</h3>
+                </div>
+                
+                <div class="bg-slate-900 rounded-lg p-4 font-mono text-sm text-cyan-300 border border-slate-700 shadow-inner mb-4 relative overflow-hidden">
+                    <div class="absolute top-0 left-0 w-full h-1 bg-cyan-500/20"></div>
+                    <span class="text-green-400">> root@system:~$ </span> <span id="modalCommand" class="text-slate-300"></span>
+                </div>
+                
+                <div id="modalDesc" class="text-slate-300 leading-relaxed">
+                    <!-- 內容將由 JS 動態填入 -->
+                </div>
+                
+                <div class="mt-6 flex justify-end">
+                    <button onclick="closeModal()" class="px-5 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-white font-medium transition-colors border border-slate-600 hover:border-slate-500">
+                        確認 (Acknowledge)
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 軟體節點資料庫 (對應課程架構與要求版本)
+        const softwareData = {
+            'ubuntu': {
+                title: 'Ubuntu 22.04 LTS (Jammy)',
+                icon: '<i class="fa-brands fa-ubuntu"></i>',
+                command: 'cat /etc/os-release',
+                desc: '穩定的 Linux 發行版，作為最終專案的雲端 VPS 部署作業系統。能完美運行 LAMP 架構，支撐行動電商 API 服務。'
+            },
+            'xampp': {
+                title: 'XAMPP 8.2.x / Docker',
+                icon: '<i class="fa-solid fa-box-archive"></i>',
+                command: 'xampp start',
+                desc: '本機開發最快速的整合包。一鍵啟動 Apache、PHP 與 MariaDB，讓學生能專注於 REST API 的開發與本地資料庫建置。'
+            },
+            'apache': {
+                title: 'Apache 2.4.x',
+                icon: '<i class="fa-solid fa-feather"></i>',
+                command: 'systemctl status apache2',
+                desc: '穩定且廣泛使用的網頁伺服器。在此架構中作為 PHP 的 API 閘道器，負責處理來自 React Native 的 HTTP 請求與 CORS 跨域設定。'
+            },
+            'php': {
+                title: 'PHP 8.1 / 8.2',
+                icon: '<i class="fa-brands fa-php"></i>',
+                command: 'php -v',
+                desc: 'API 中介邏輯層。負責接收前端 JSON，進行商業邏輯判斷、密碼雜湊，並利用 PDO 預備陳述式與強型態綁定，安全地寫入資料庫，徹底防禦 SQL Injection。'
+            },
+            'mariadb': {
+                title: 'MariaDB 12.2.x',
+                icon: '<i class="fa-solid fa-database"></i>',
+                command: 'mysql -u root -p',
+                desc: '高性能關聯式資料庫。支援進階 CHECK 約束與 B-Tree 索引。負責管理 10 大關聯資料表，並利用 InnoDB 的列級鎖定 (Row-level Locking) 防範超賣事務危機。'
+            },
+            'heidiSQL': {
+                title: 'HeidiSQL 12.21',
+                icon: '<i class="fa-solid fa-table-list"></i>',
+                command: 'C:\\Program Files\\HeidiSQL\\heidisql.exe',
+                desc: '視覺化資料庫管理介面。能幫助初學者直觀地建立資料表關聯 (Foreign Keys)、設計 ERD，並進行 SQL 查詢測試與資料匯出。'
+            },
+            'nodejs': {
+                title: 'Node.js 18.x / 20.x LTS',
+                icon: '<i class="fa-brands fa-node-js"></i>',
+                command: 'node -v && npm -v',
+                desc: 'JavaScript 的伺服器端執行環境。雖然本系統後端使用 PHP，但前端 React Native 的開發、打包以及套件管理 (npm/npx) 都必須依賴 Node.js 作為底層引擎。'
+            },
+            'reactnative': {
+                title: 'React Native 0.7x (or Expo)',
+                icon: '<i class="fa-brands fa-react"></i>',
+                command: 'npx expo start',
+                desc: '強大的跨平台行動開發框架。利用 JavaScript 撰寫 UI，編譯為原生 App。實作 AJAX 定時輪詢與 FlatList 無限滾動分頁，打造即時客服與流暢商品展示。'
+            },
+            'androidstudio': {
+                title: 'Android Studio & SDK',
+                icon: '<i class="fa-brands fa-android"></i>',
+                command: 'emulator -avd Pixel_4_API_33',
+                desc: '提供 Android 開發必需的 SDK 工具鏈 (建議 API 33+) 與 AVD 虛擬機器。讓開發者能在電腦上模擬各種手機尺寸與無網路環境進行測試。'
+            },
+            'postman': {
+                title: 'Postman',
+                icon: '<i class="fa-solid fa-space-shuttle"></i>',
+                command: 'Send HTTP POST Request',
+                desc: '後端開發的火力展示工具。能在不依賴前端畫面的情況下，獨立向 PHP API 發射包含 JSON Body 的 GET/POST 請求，驗證 HTTP 狀態碼與資料庫讀寫結果。'
+            },
+            'vscode': {
+                title: 'Visual Studio Code',
+                icon: '<i class="fa-solid fa-code"></i>',
+                command: 'code .',
+                desc: '現代軟體開發的主流編輯器。確保跨平台開發時的文件編碼統一為 UTF-8，防止 JSON 解析出現中文亂碼。'
+            },
+            'git': {
+                title: 'Git',
+                icon: '<i class="fa-brands fa-git-alt"></i>',
+                command: 'git commit -m "feat: live chat"',
+                desc: '分散式版本控制系統。支援分組專案協作、代碼審查，以及期末專案的最終版本標籤 (Tagging) 與原始碼管理。'
+            }
+        };
+
+        const modal = document.getElementById('infoModal');
+        const modalTitle = document.getElementById('modalTitle');
+        const modalIcon = document.getElementById('modalIcon');
+        const modalDesc = document.getElementById('modalDesc');
+        const modalCommand = document.getElementById('modalCommand');
+
+        // 打開彈出視窗並填充資料
+        function openModal(techKey) {
+            const data = softwareData[techKey];
+            if(data) {
+                modalTitle.innerHTML = data.title;
+                modalIcon.innerHTML = data.icon;
+                modalCommand.innerText = data.command;
+                modalDesc.innerHTML = `<p>${data.desc}</p>`;
+                
+                modal.classList.add('active');
+            }
+        }
+
+        // 關閉彈出視窗
+        function closeModal() {
+            modal.classList.remove('active');
+        }
+
+        // 點擊背景遮罩關閉
+        modal.addEventListener('click', function(e) {
+            if (e.target === modal) {
+                closeModal();
+            }
+        });
+
+        // 監聽 ESC 鍵關閉
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape' && modal.classList.contains('active')) {
+                closeModal();
+            }
+        });
+    </script>
+</body>
+</html>
