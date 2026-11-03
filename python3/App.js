@@ -776,6 +776,7 @@ export function ProductDetailScreen({ product, onBack }) {
           placeholderTextColor="#9aa5ac"
           value={comment}
           onChangeText={setComment}
+          maxLength={1000} // 與資料庫 VARCHAR(1000) 一致，打字時就擋住
           multiline
         />
         <Button title="送出評價" onPress={submitReview} disabled={busy || !comment.trim()} />
@@ -1560,6 +1561,7 @@ export function ChatScreen({ userId, onBack }) {
           placeholderTextColor="#9aa5ac"
           value={inputText}
           onChangeText={setInputText}
+          maxLength={1000} // 與資料庫 VARCHAR(1000) 一致
           onSubmitEditing={handleSendMessage}
           editable={!!roomId}
           // RN 0.83 起 blurOnSubmit 改名為 submitBehavior；'submit' = 送出後不收鍵盤

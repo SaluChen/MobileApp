@@ -314,6 +314,22 @@ function fmt_money($amount) {
     return (floor($amount) == $amount) ? (string)(int)$amount : number_format($amount, 2, '.', '');
 }
 
+/** 文字欄位長度上限（與 MariaDB.sql 的 VARCHAR(1000) 一致，以「字」計，不是位元組） */
+const TEXT_MAX_LEN = 1000;
+
+/**
+ * 超過上限直接回 400。
+ * 不檢查的話資料庫會丟 1406 Data too long，前端只會看到一串 SQL 錯誤。
+ */
+function check_text_len($value, $label, $max = TEXT_MAX_LEN) {
+    if ($value === null || is_array($value)) return;
+    $s = (string)$value;
+    $len = function_exists('mb_strlen') ? mb_strlen($s, 'UTF-8') : preg_match_all('/./su', $s);
+    if ($len > $max) {
+        deny(400, "{$label}最多 {$max} 字（目前 {$len} 字）", "TEXT_TOO_LONG");
+    }
+}
+
 /** 分頁參數：固定每頁 20 筆 */
 function page_params($per_page = 20) {
     $page = max(1, (int)($_GET['page'] ?? 1));
@@ -903,6 +919,7 @@ switch ($resource) {
             // 🔑 作者身分來自權杖，前端不能冒用別人的名義留言
             $me = require_auth($pdo, $TOKEN_SECRET);
             if (!empty($input['comment'])) {
+                check_text_len($input['comment'], "評價內容");
                 // 星等夾在 1~5，避免寫進 10 顆星或負數
                 $rating = (int)($input['rating'] ?? 5);
                 if ($rating < 1 || $rating > 5) { $rating = 5; }
@@ -1031,6 +1048,7 @@ switch ($resource) {
             $room_id = (int)($input['room_id'] ?? 0);
             $text = trim((string)($input['message_text'] ?? ''));
             if ($room_id <= 0 || $text === '') deny(400, "需提供 room_id 與 message_text");
+            check_text_len($text, "訊息");
 
             $room = assert_room_member($pdo, $room_id, $me); // 🛡️ 不是成員就 403
 
@@ -1075,6 +1093,7 @@ switch ($resource) {
         } elseif ($method === 'POST') {
             $name = trim((string)($input['category_name'] ?? ''));
             if ($name === '') deny(400, "缺少 category_name");
+            check_text_len($input['description'] ?? null, "分類說明");
             $stmt = $pdo->prepare("INSERT INTO Categories (category_name, description) VALUES (?, ?)");
             $stmt->execute([$name, $input['description'] ?? '']);
             http_response_code(201);
@@ -1084,6 +1103,7 @@ switch ($resource) {
             $id = (int)($input['category_id'] ?? 0);
             $name = trim((string)($input['category_name'] ?? ''));
             if ($id <= 0 || $name === '') deny(400, "需提供 category_id 與 category_name");
+            check_text_len($input['description'] ?? null, "分類說明");
             $stmt = $pdo->prepare("UPDATE Categories SET category_name = ?, description = ? WHERE category_id = ?");
             $stmt->execute([$name, $input['description'] ?? '', $id]);
             echo json_encode(["message" => "分類已更新"]);
@@ -1132,6 +1152,7 @@ switch ($resource) {
             if ($name === '' || !isset($input['price']) || !isset($input['stock_quantity'])) {
                 deny(400, "上架失敗，商品名稱 / 價格 / 庫存量為必填");
             }
+            check_text_len($input['description'] ?? null, "商品說明");
             $stmt = $pdo->prepare("INSERT INTO Products (category_id, name, description, price, stock_quantity, image_url) VALUES (?, ?, ?, ?, ?, ?)");
             $stmt->execute([
                 // 分類允許留空（未分類），外鍵是 ON DELETE SET NULL，NULL 是合法值
@@ -1151,6 +1172,7 @@ switch ($resource) {
             if ($id <= 0 || $name === '' || !isset($input['price']) || !isset($input['stock_quantity'])) {
                 deny(400, "需提供 product_id、name、price、stock_quantity");
             }
+            check_text_len($input['description'] ?? null, "商品說明");
             $stmt = $pdo->prepare(
                 "UPDATE Products SET category_id = ?, name = ?, description = ?, price = ?, stock_quantity = ?, image_url = ?
                   WHERE product_id = ?"
@@ -1473,6 +1495,144 @@ switch ($resource) {
                 "status"  => $newStatus
             ]);
         }
+        break;
+
+    // ==========================================
+    // 🆕 銷售分析 Dashboard（manager / admin / finance）
+    // ==========================================
+    // GET staff-dashboard?from=YYYY-MM-DD&to=YYYY-MM-DD&group=day|month|quarter|year
+    // 「銷售」= 期間內成立、且未取消的訂單（舊制 pending / paid 也算）。
+    // 期間沒有訂單的時段不會出現在 series 裡，由前端補 0。
+    case 'staff-dashboard':
+        require_role($pdo, $TOKEN_SECRET, ['manager', 'admin', 'finance']);
+        if ($method !== 'GET') deny(405, "Dashboard 只提供查詢");
+
+        $from  = (string)($_GET['from'] ?? '');
+        $to    = (string)($_GET['to'] ?? '');
+        $group = (string)($_GET['group'] ?? 'month');
+        $is_date = function ($s) {
+            return preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $s, $m) && checkdate((int)$m[2], (int)$m[3], (int)$m[1]);
+        };
+        if (!$is_date($from) || !$is_date($to)) deny(400, "from / to 必須是 YYYY-MM-DD 格式的日期");
+        if ($from > $to) deny(400, "起始日期不可晚於結束日期");
+        $period_sql = [
+            'day'     => "DATE_FORMAT(o.created_at, '%Y-%m-%d')",
+            'month'   => "DATE_FORMAT(o.created_at, '%Y-%m')",
+            'quarter' => "CONCAT(YEAR(o.created_at), '-Q', QUARTER(o.created_at))",
+            'year'    => "DATE_FORMAT(o.created_at, '%Y')",
+        ];
+        if (!isset($period_sql[$group])) deny(400, "group 只接受 day / month / quarter / year");
+        $days = (int)((strtotime($to) - strtotime($from)) / 86400) + 1;
+        if ($group === 'day' && $days > 366) deny(400, "依日分析的區間最多 366 天，請改用依月或依季");
+
+        // 半開區間 [from, to+1)：created_at 是時間戳記，<= to 會漏掉當天 00:00 之後的訂單
+        $range  = "o.created_at >= :from AND o.created_at < DATE_ADD(:to, INTERVAL 1 DAY)";
+        $valid  = "o.status <> 'cancelled'";
+        $period = $period_sql[$group];
+        $run = function ($sql) use ($pdo, $from, $to) {
+            $stmt = $pdo->prepare($sql);
+            $stmt->bindValue(':from', $from);
+            $stmt->bindValue(':to', $to);
+            $stmt->execute();
+            return $stmt->fetchAll();
+        };
+
+        // 1) 總覽
+        $s = $run(
+            "SELECT COUNT(*) AS orders,
+                    COALESCE(SUM(o.total_amount), 0) AS revenue,
+                    COALESCE(SUM(oi.qty), 0) AS items,
+                    COALESCE(SUM(CASE WHEN p.status = 'success' THEN o.total_amount ELSE 0 END), 0) AS paid_revenue
+               FROM Orders o
+          LEFT JOIN (SELECT order_id, SUM(quantity) AS qty FROM Order_Items GROUP BY order_id) oi ON oi.order_id = o.order_id
+          LEFT JOIN Payments p ON p.order_id = o.order_id
+              WHERE $range AND $valid"
+        )[0];
+        $c = $run(
+            "SELECT COUNT(*) AS orders, COALESCE(SUM(o.total_amount), 0) AS amount
+               FROM Orders o WHERE $range AND o.status = 'cancelled'"
+        )[0];
+        $summary = [
+            "orders"           => (int)$s['orders'],
+            "revenue"          => $s['revenue'],
+            "items"            => (int)$s['items'],
+            "paid_revenue"     => $s['paid_revenue'],
+            "cancelled_orders" => (int)$c['orders'],
+            "cancelled_amount" => $c['amount'],
+        ];
+
+        // 2) 各時段
+        $series = $run(
+            "SELECT $period AS period, COUNT(*) AS orders,
+                    SUM(o.total_amount) AS revenue, COALESCE(SUM(oi.qty), 0) AS items
+               FROM Orders o
+          LEFT JOIN (SELECT order_id, SUM(quantity) AS qty FROM Order_Items GROUP BY order_id) oi ON oi.order_id = o.order_id
+              WHERE $range AND $valid
+           GROUP BY period ORDER BY period"
+        );
+        foreach ($series as &$r) { $r['orders'] = (int)$r['orders']; $r['items'] = (int)$r['items']; }
+        unset($r);
+
+        // 3) 依分類（依訂單明細計算）：-1 = 商品已刪除，0 = 未分類
+        $by_category = $run(
+            "SELECT CASE WHEN c.category_id IS NOT NULL THEN c.category_id
+                         WHEN oi.product_id IS NULL THEN -1 ELSE 0 END AS category_id,
+                    CASE WHEN c.category_id IS NOT NULL THEN c.category_name
+                         WHEN oi.product_id IS NULL THEN '已下架商品' ELSE '未分類' END AS category_name,
+                    SUM(oi.quantity * oi.price_at_purchase) AS revenue, SUM(oi.quantity) AS items
+               FROM Order_Items oi
+               JOIN Orders o ON o.order_id = oi.order_id
+          LEFT JOIN Products pr ON pr.product_id = oi.product_id
+          LEFT JOIN Categories c ON c.category_id = pr.category_id
+              WHERE $range AND $valid
+           GROUP BY 1, 2 ORDER BY revenue DESC, category_id"
+        );
+        foreach ($by_category as &$r) { $r['category_id'] = (int)$r['category_id']; $r['items'] = (int)$r['items']; }
+        unset($r);
+
+        // 4) 依支付方式
+        $by_payment = $run(
+            "SELECT COALESCE(p.payment_method, '無付款紀錄') AS payment_method, COUNT(*) AS orders,
+                    SUM(o.total_amount) AS revenue,
+                    SUM(CASE WHEN p.status = 'success' THEN o.total_amount ELSE 0 END) AS paid_revenue
+               FROM Orders o LEFT JOIN Payments p ON p.order_id = o.order_id
+              WHERE $range AND $valid
+           GROUP BY 1 ORDER BY revenue DESC, payment_method"
+        );
+        foreach ($by_payment as &$r) { $r['orders'] = (int)$r['orders']; }
+        unset($r);
+
+        // 5) 熱銷商品前 10 名
+        $top_products = $run(
+            "SELECT oi.product_id, COALESCE(MAX(pr.name), '已下架商品') AS name,
+                    SUM(oi.quantity) AS items, SUM(oi.quantity * oi.price_at_purchase) AS revenue
+               FROM Order_Items oi
+               JOIN Orders o ON o.order_id = oi.order_id
+          LEFT JOIN Products pr ON pr.product_id = oi.product_id
+              WHERE $range AND $valid
+           GROUP BY oi.product_id ORDER BY revenue DESC, items DESC, oi.product_id
+              LIMIT 10"
+        );
+        foreach ($top_products as &$r) {
+            $r['product_id'] = $r['product_id'] === null ? null : (int)$r['product_id'];
+            $r['items'] = (int)$r['items'];
+        }
+        unset($r);
+
+        // 6) 資料範圍：前端用來產生年度下拉選單
+        $b = $pdo->query("SELECT DATE_FORMAT(MIN(created_at), '%Y-%m-%d') AS first, DATE_FORMAT(MAX(created_at), '%Y-%m-%d') AS last FROM Orders")->fetch();
+
+        echo json_encode([
+            "from"         => $from,
+            "to"           => $to,
+            "group"        => $group,
+            "bounds"       => ["first" => $b['first'], "last" => $b['last']],
+            "summary"      => $summary,
+            "series"       => $series,
+            "by_category"  => $by_category,
+            "by_payment"   => $by_payment,
+            "top_products" => $top_products,
+        ], JSON_UNESCAPED_UNICODE);
         break;
 
     default:

@@ -503,6 +503,9 @@ const soldOut =
 
 `key` 使用 `String(r.review_id)`。無評價時顯示「尚無評價，成為第一位留言者」。
 
+> 🆕 評價輸入框加上 `maxLength={1000}`，與資料庫 `Reviews.comment VARCHAR(1000)` 一致 —— 打到 1000 字就打不下去。
+> 後端也會擋：超過時 `POST /reviews` 回 400（`code: "TEXT_TOO_LONG"`），由 `apiRequest` 照常把中文訊息丟給 Alert。
+
 > 🆕 返回按鈕文字改為「← 返回上一頁」—— 因為現在可能從商品列表進來，也可能從主選單的「商品詳情」快捷進來。
 
 ---
@@ -874,6 +877,7 @@ POST /messages {room_id, sender_id, message_text}
 - `onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}` —— 新訊息自動捲到底
 - 氣泡樣式依 `String(item.sender_id) === String(userId)` 分為 `myMessage`（右、綠）/ `otherMessage`（左、白）
 - `submitBehavior="submit"` —— RN 0.83 起 `blurOnSubmit` 改名；`'submit'` 表示送出後不收鍵盤
+- 🆕 `maxLength={1000}` —— 與資料庫 `Messages.message_text VARCHAR(1000)` 一致；超過時後端回 400
 
 ---
 
@@ -1072,7 +1076,7 @@ Base URL 由 `getApiUrl()` 決定（預設 `http://192.168.8.88/api.php`）。
 | | `GET` | `/categories` | ProductListScreen | — | `[{category_id, category_name}]` |
 | | `GET` | `/products?page=N` | ProductListScreen | — | `[{product_id, name, price, category_name, description}]`（每頁 20 筆） |
 | | `GET` | `/reviews?product_id=X` | ProductDetailScreen | — | `[{review_id, rating, full_name, comment}]` |
-| 🔒 | `POST` | `/reviews` | ProductDetailScreen | `{product_id, rating, comment}` | 作者取自權杖 |
+| 🔒 | `POST` | `/reviews` | ProductDetailScreen | `{product_id, rating, comment}` | 作者取自權杖；🆕 `comment` 超過 1000 字回 400 |
 | 🔒 | `GET` | `/cart` | CartScreen | — | `[{cart_id, name, price, quantity}]` |
 | 🔒 | `POST` | `/cart` | ProductDetailScreen | `{product_id, quantity}` | 數量**累加**；超庫存回 409 |
 | 🔒 🆕 | `PUT` | `/cart` | CartScreen | `{cart_id, quantity}` | 數量**覆寫**；超庫存回 409 |
@@ -1083,7 +1087,7 @@ Base URL 由 `getApiUrl()` 決定（預設 `http://192.168.8.88/api.php`）。
 | 🔒 | `POST` | `/payments` | CartScreen | `{order_id, payment_method, transaction_id}` | 金額由後端讀訂單決定；回 `{payment_status, order_status, message}` |
 | 🔒 🆕 | `POST` | `/chat-rooms` | ChatScreen | — | `{room_id}`；取得或建立自己的客服房 |
 | 🔒 | `GET` | `/messages?room_id=X` | ChatScreen | — | `[{message_id, sender_id, sender_name, sender_role, message_text}]`；非成員回 403 |
-| 🔒 | `POST` | `/messages` | ChatScreen | `{room_id, message_text}` | 寄件者取自權杖 |
+| 🔒 | `POST` | `/messages` | ChatScreen | `{room_id, message_text}` | 寄件者取自權杖；🆕 `message_text` 超過 1000 字回 400 |
 
 > 公開端點只剩三支：**登入 / 註冊、商品瀏覽、評價閱讀**。
 > 其餘讀寫都要求權杖，且 `user_id` 一律由後端從權杖解出 —— 前端送的會被忽略。
@@ -1574,7 +1578,9 @@ GET /order-items?order_id=X
 | 併發下的購物車庫存 | `POST` / `PUT /cart` 的庫存檢查是「先查再寫」兩步，理論上仍可搶到超量。但購物車不是承諾成交，真正的把關在下單事務（那裡是原子的），影響有限 |
 | 商品詳情快捷會鎖住 🆕 | 主選單的「商品詳情」在沒選過商品前為 disabled，這是刻意設計 |
 | `PAGE_SIZE = 20` | 必須與 `api.php` 的 `$limit` 保持一致，否則「是否還有下一頁」的判斷會失準 |
-| 分類列僅展示 | `categories` 目前只渲染成膠囊標籤，尚未接上點擊篩選功能 |
+| 分類列僅展示 | `categories` 目前只渲染成膠囊標籤，尚未接上點擊篩選功能。🆕 後端已提供 `GET /products?category_id=C&page=N`（網頁版 index.html 已在用），App 要做分類篩選可直接接這支；注意它回的是分頁信封 `{page, total_pages, data}`，不是純陣列 |
+| 文字長度上限 🆕 | 評價與聊天輸入框 `maxLength={1000}`。RN 以 UTF-16 計數，一個 emoji 算 2 字，所以對 emoji 比後端嚴格 |
+| Python 版後端 🆕 | `py3/App.js` 是配合 Python 版後端的副本，預設網址為 `http://192.168.8.88:5000/api`；其餘程式碼與本檔相同。見 [py3/README-py3.md](py3/README-py3.md) |
 | 評價星等固定 5 | `submitReview` 硬寫 `rating: 5`，尚無星等選擇 UI |
 | 客服房間由後端指派 | App 不再有 `CHAT_ROOM_ID` 常數，改為 `POST /chat-rooms` 取得自己的房號 |
 | 結帳後不重抓購物車 | 成功後前端 `setCartItems([])`，依賴後端已在同一事務中清空 |
@@ -1593,5 +1599,6 @@ GET /order-items?order_id=X
 - [MariaDB.sql](MariaDB.sql) / [MariaDB-migration.sql](MariaDB-migration.sql) —— 資料庫結構與升級腳本
 - [README-打包APK.md](README-打包APK.md) —— APK 打包流程
 - [README-改寫說明.md](README-改寫說明.md) —— 舊語法 → 新版本的改寫紀錄
+- [py3/README-py3.md](py3/README-py3.md) —— Python 3 版後端（`api.py`）
 - [package.json](package.json) —— 相依版本
 - [AGENTS.md](AGENTS.md) —— Expo SDK 57 文件連結

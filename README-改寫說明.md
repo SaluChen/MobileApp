@@ -268,6 +268,10 @@ setProducts((prev) => {
 | 7 | 財務／倉管／物流三角色，訂單狀態改為純履約進度 |
 | 8 | 金額千分位（新增 `money()`）、分類列被壓扁修正（`flexShrink: 0`）、後台角色清單收斂為 `BACKOFFICE_ROLES` |
 | 9 | iOS 版：EAS 雲端建置、iOS 17 ATS 內網 IP 例外、`.easignore` 擋機密、相依套件對齊 SDK 57（`expo-doctor` 21/21） |
+| 10 | 後端另出 Python 3 版（`py3/api.py`）；`py3/App.js` 預設網址改為 `:5000/api`，App 程式邏輯不變 |
+| 11 | 網頁版商品目錄改為「先分類、再商品」兩層分頁（後端新增 `/products?category_id=`），App 尚未採用 |
+| 12 | 評價與聊天輸入框加上 `maxLength={1000}`，配合資料庫 `TEXT` → `VARCHAR(1000)` |
+| 13 | 後台新增銷售分析 Dashboard（網頁），App 不受影響 |
 
 其中與本文件 **A~C 節直接相關**的後續修正：
 

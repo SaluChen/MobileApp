@@ -546,6 +546,22 @@ def fmt_money(amount):
     return '%.2f' % amount
 
 
+# 文字欄位長度上限（與 MariaDB.sql 的 VARCHAR(1000) 一致，以「字」計，不是位元組）
+TEXT_MAX_LEN = 1000
+
+
+def check_text_len(value, label, max_len=TEXT_MAX_LEN):
+    """
+    超過上限直接回 400。
+    不檢查的話資料庫會丟 1406 Data too long，前端只會看到一串 SQL 錯誤。
+    """
+    if value is None or isinstance(value, (list, dict)):
+        return
+    n = len(php_str(value))  # Python 的 len 以字元（code point）計，與 mb_strlen / CHAR_LENGTH 相同
+    if n > max_len:
+        deny(400, "%s最多 %d 字（目前 %d 字）" % (label, max_len, n), "TEXT_TOO_LONG")
+
+
 def page_params(per_page=20):
     """分頁參數：固定每頁 20 筆"""
     page = max(1, php_int(request.args.get('page', 1)))
@@ -1047,6 +1063,7 @@ def r_reviews(method, inp):
         # 🔑 作者身分來自權杖，前端不能冒用別人的名義留言
         me = require_auth()
         if not php_empty(inp.get('comment')):
+            check_text_len(inp['comment'], "評價內容")
             # 星等夾在 1~5，避免寫進 10 顆星或負數
             rating = php_int(inp['rating']) if inp.get('rating') is not None else 5
             if rating < 1 or rating > 5:
@@ -1145,6 +1162,7 @@ def r_messages(method, inp):
         text = php_str(inp.get('message_text')).strip()
         if room_id <= 0 or text == '':
             deny(400, "需提供 room_id 與 message_text")
+        check_text_len(text, "訊息")
 
         room = assert_room_member(room_id, me)  # 🛡️ 不是成員就 403
 
@@ -1181,6 +1199,7 @@ def r_staff_categories(method, inp):
         name = php_str(inp.get('category_name')).strip()
         if name == '':
             deny(400, "缺少 category_name")
+        check_text_len(inp.get('description'), "分類說明")
         desc = inp.get('description')
         cur = q("INSERT INTO Categories (category_name, description) VALUES (%s, %s)",
                 (name, desc if desc is not None else ''))
@@ -1191,6 +1210,7 @@ def r_staff_categories(method, inp):
         name = php_str(inp.get('category_name')).strip()
         if cid <= 0 or name == '':
             deny(400, "需提供 category_id 與 category_name")
+        check_text_len(inp.get('description'), "分類說明")
         desc = inp.get('description')
         q("UPDATE Categories SET category_name = %s, description = %s WHERE category_id = %s",
           (name, desc if desc is not None else '', cid))
@@ -1242,6 +1262,7 @@ def r_staff_products(method, inp):
         name = php_str(inp.get('name')).strip()
         if name == '' or inp.get('price') is None or inp.get('stock_quantity') is None:
             deny(400, "上架失敗，商品名稱 / 價格 / 庫存量為必填")
+        check_text_len(inp.get('description'), "商品說明")
         cat, desc, price, stock, img = _product_fields(inp)
         cur = q("INSERT INTO Products (category_id, name, description, price, stock_quantity, image_url) "
                 "VALUES (%s, %s, %s, %s, %s, %s)", (cat, name, desc, price, stock, img))
@@ -1252,6 +1273,7 @@ def r_staff_products(method, inp):
         name = php_str(inp.get('name')).strip()
         if pid <= 0 or name == '' or inp.get('price') is None or inp.get('stock_quantity') is None:
             deny(400, "需提供 product_id、name、price、stock_quantity")
+        check_text_len(inp.get('description'), "商品說明")
         cat, desc, price, stock, img = _product_fields(inp)
         q("UPDATE Products SET category_id = %s, name = %s, description = %s, price = %s, "
           "stock_quantity = %s, image_url = %s WHERE product_id = %s",
@@ -1478,6 +1500,137 @@ def r_staff_users(method, inp):
     return None
 
 
+# ==========================================
+# 🆕 銷售分析 Dashboard（manager / admin / finance）
+# ==========================================
+# GET staff-dashboard?from=YYYY-MM-DD&to=YYYY-MM-DD&group=day|month|quarter|year
+# 「銷售」= 期間內成立、且未取消的訂單（舊制 pending / paid 也算）。
+# 期間沒有訂單的時段不會出現在 series 裡，由前端補 0。
+# ⚠️ PyMySQL 帶參數時會對整句做 % 格式化，SQL 裡的 DATE_FORMAT 必須寫成 %%Y。
+DASHBOARD_PERIOD_SQL = {
+    'day':     "DATE_FORMAT(o.created_at, '%%Y-%%m-%%d')",
+    'month':   "DATE_FORMAT(o.created_at, '%%Y-%%m')",
+    'quarter': "CONCAT(YEAR(o.created_at), '-Q', QUARTER(o.created_at))",
+    'year':    "DATE_FORMAT(o.created_at, '%%Y')",
+}
+
+
+def _parse_ymd(s):
+    m = re.fullmatch(r'(\d{4})-(\d{2})-(\d{2})', s)
+    if not m:
+        return None
+    try:
+        return date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+    except ValueError:
+        return None
+
+
+def r_staff_dashboard(method, inp):
+    require_role(['manager', 'admin', 'finance'])
+    if method != 'GET':
+        deny(405, "Dashboard 只提供查詢")
+
+    d_from = php_str(request.args.get('from', ''))
+    d_to = php_str(request.args.get('to', ''))
+    group = php_str(request.args.get('group', 'month'))
+    f, t = _parse_ymd(d_from), _parse_ymd(d_to)
+    if f is None or t is None:
+        deny(400, "from / to 必須是 YYYY-MM-DD 格式的日期")
+    if d_from > d_to:
+        deny(400, "起始日期不可晚於結束日期")
+    if group not in DASHBOARD_PERIOD_SQL:
+        deny(400, "group 只接受 day / month / quarter / year")
+    if group == 'day' and (t - f).days + 1 > 366:
+        deny(400, "依日分析的區間最多 366 天，請改用依月或依季")
+
+    # 半開區間 [from, to+1)：created_at 是時間戳記，<= to 會漏掉當天 00:00 之後的訂單
+    rng = "o.created_at >= %(from)s AND o.created_at < DATE_ADD(%(to)s, INTERVAL 1 DAY)"
+    valid = "o.status <> 'cancelled'"
+    period = DASHBOARD_PERIOD_SQL[group]
+    args = {'from': d_from, 'to': d_to}
+    item_qty = "LEFT JOIN (SELECT order_id, SUM(quantity) AS qty FROM Order_Items GROUP BY order_id) oi ON oi.order_id = o.order_id "
+
+    # 1) 總覽
+    s = fetch("SELECT COUNT(*) AS orders, COALESCE(SUM(o.total_amount), 0) AS revenue, "
+              "COALESCE(SUM(oi.qty), 0) AS items, "
+              "COALESCE(SUM(CASE WHEN p.status = 'success' THEN o.total_amount ELSE 0 END), 0) AS paid_revenue "
+              "FROM Orders o " + item_qty +
+              "LEFT JOIN Payments p ON p.order_id = o.order_id "
+              "WHERE " + rng + " AND " + valid, args)
+    c = fetch("SELECT COUNT(*) AS orders, COALESCE(SUM(o.total_amount), 0) AS amount "
+              "FROM Orders o WHERE " + rng + " AND o.status = 'cancelled'", args)
+    summary = {
+        "orders": php_int(s['orders']),
+        "revenue": s['revenue'],
+        "items": php_int(s['items']),
+        "paid_revenue": s['paid_revenue'],
+        "cancelled_orders": php_int(c['orders']),
+        "cancelled_amount": c['amount'],
+    }
+
+    # 2) 各時段
+    series = fetch_all("SELECT " + period + " AS period, COUNT(*) AS orders, "
+                       "SUM(o.total_amount) AS revenue, COALESCE(SUM(oi.qty), 0) AS items "
+                       "FROM Orders o " + item_qty +
+                       "WHERE " + rng + " AND " + valid + " GROUP BY period ORDER BY period", args)
+    for r in series:
+        r['orders'] = php_int(r['orders'])
+        r['items'] = php_int(r['items'])
+
+    # 3) 依分類（依訂單明細計算）：-1 = 商品已刪除，0 = 未分類
+    by_category = fetch_all(
+        "SELECT CASE WHEN c.category_id IS NOT NULL THEN c.category_id "
+        "            WHEN oi.product_id IS NULL THEN -1 ELSE 0 END AS category_id, "
+        "       CASE WHEN c.category_id IS NOT NULL THEN c.category_name "
+        "            WHEN oi.product_id IS NULL THEN '已下架商品' ELSE '未分類' END AS category_name, "
+        "       SUM(oi.quantity * oi.price_at_purchase) AS revenue, SUM(oi.quantity) AS items "
+        "FROM Order_Items oi JOIN Orders o ON o.order_id = oi.order_id "
+        "LEFT JOIN Products pr ON pr.product_id = oi.product_id "
+        "LEFT JOIN Categories c ON c.category_id = pr.category_id "
+        "WHERE " + rng + " AND " + valid + " GROUP BY 1, 2 ORDER BY revenue DESC, category_id", args)
+    for r in by_category:
+        r['category_id'] = php_int(r['category_id'])
+        r['items'] = php_int(r['items'])
+
+    # 4) 依支付方式
+    by_payment = fetch_all(
+        "SELECT COALESCE(p.payment_method, '無付款紀錄') AS payment_method, COUNT(*) AS orders, "
+        "       SUM(o.total_amount) AS revenue, "
+        "       SUM(CASE WHEN p.status = 'success' THEN o.total_amount ELSE 0 END) AS paid_revenue "
+        "FROM Orders o LEFT JOIN Payments p ON p.order_id = o.order_id "
+        "WHERE " + rng + " AND " + valid + " GROUP BY 1 ORDER BY revenue DESC, payment_method", args)
+    for r in by_payment:
+        r['orders'] = php_int(r['orders'])
+
+    # 5) 熱銷商品前 10 名
+    top_products = fetch_all(
+        "SELECT oi.product_id, COALESCE(MAX(pr.name), '已下架商品') AS name, "
+        "       SUM(oi.quantity) AS items, SUM(oi.quantity * oi.price_at_purchase) AS revenue "
+        "FROM Order_Items oi JOIN Orders o ON o.order_id = oi.order_id "
+        "LEFT JOIN Products pr ON pr.product_id = oi.product_id "
+        "WHERE " + rng + " AND " + valid +
+        " GROUP BY oi.product_id ORDER BY revenue DESC, items DESC, oi.product_id LIMIT 10", args)
+    for r in top_products:
+        r['product_id'] = None if r['product_id'] is None else php_int(r['product_id'])
+        r['items'] = php_int(r['items'])
+
+    # 6) 資料範圍：前端用來產生年度下拉選單
+    b = fetch("SELECT DATE_FORMAT(MIN(created_at), '%Y-%m-%d') AS first, "
+              "DATE_FORMAT(MAX(created_at), '%Y-%m-%d') AS last FROM Orders", None)
+
+    return out({
+        "from": d_from,
+        "to": d_to,
+        "group": group,
+        "bounds": {"first": b['first'], "last": b['last']},
+        "summary": summary,
+        "series": series,
+        "by_category": by_category,
+        "by_payment": by_payment,
+        "top_products": top_products,
+    })
+
+
 ROUTES = {
     'users':            r_users,
     'categories':       r_categories,
@@ -1494,6 +1647,7 @@ ROUTES = {
     'staff-orders':     r_staff_orders,
     'staff-payments':   r_staff_payments,
     'staff-users':      r_staff_users,
+    'staff-dashboard':  r_staff_dashboard,
 }
 
 

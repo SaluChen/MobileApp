@@ -8,9 +8,11 @@
 | `requirements.txt` | 相依套件 |
 | `login.html`、`index.html`、`admin.html`、`manager.html`、`finance.html`、`warehouse.html`、`logistics.html` | 網頁前端（已配合改寫） |
 | `backoffice.js`、`ops.js`、`backoffice.css` | 後台共用程式與樣式 |
+| `dashboard.html`、`dashboard.js` | 銷售分析 Dashboard（見文末） |
 | `App.js` | 手機 App（Expo）原始碼，已改 API 預設網址 |
 
-資料庫結構**完全沿用 `../MariaDB.sql`**，不需要任何 migration。
+資料庫結構**完全沿用 `../MariaDB.sql`**，Python 版本身不需要另外的 migration。
+既有資料庫若還是 `TEXT` 欄位的舊結構，請先跑 `../MariaDB-migration.sql`（第 7-1 步把四個 `TEXT` 欄位改為 `VARCHAR(1000)`）。
 
 ## 安裝與啟動
 
@@ -55,3 +57,18 @@ python api.py            # 預設 http://0.0.0.0:5000
 | `GET /api/products?page=N` | 不帶 `category_id`：舊行為，回傳陣列 |
 
 分類被刪除後，商品的 `category_id` 會變成 NULL。這些商品會收在最後一個虛擬分類「未分類」（`category_id = 0`）。
+
+## 銷售分析 Dashboard（新增）
+
+`dashboard.html` + `dashboard.js`，限 manager / admin / finance 使用。admin、manager、finance 頁的側欄都有入口。
+
+- 五種分析：年、季、月、日、自訂區間。每種都有 KPI、銷售額長條圖、訂單數與件數曲線圖、銷售額占比圓餅圖（依期間／分類／支付方式）、熱銷商品 Top 10 與期間明細表。
+- API：`GET /api/staff-dashboard?from=YYYY-MM-DD&to=YYYY-MM-DD&group=day|month|quarter|year`
+- 「銷售」= 期間內成立且未取消的訂單；依日統計最多 366 天。
+- 圖表用原生 SVG 繪製，不依賴外部 CDN，內網也能用。
+
+## 文字欄位 1000 字上限（新增）
+
+評價、聊天訊息、分類說明、商品說明最多 1000 字（與 `VARCHAR(1000)` 一致，以「字」計）。
+超過時兩版 API 都回 400，訊息如「評價內容最多 1000 字（目前 1001 字）」，附 `code: "TEXT_TOO_LONG"`；
+網頁與 App 的輸入框也設了同樣的上限。

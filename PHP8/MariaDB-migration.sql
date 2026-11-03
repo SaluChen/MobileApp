@@ -224,6 +224,61 @@ PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
 SELECT '7. 索引完成' AS step;
 
 -- ------------------------------------------------------------------------------
+-- 7-1. 🆕 TEXT 欄位改為 VARCHAR(1000)
+-- ------------------------------------------------------------------------------
+-- 與 MariaDB.sql 一致：分類說明、商品說明、評價、聊天訊息上限 1000 字（utf8mb4 以「字」計）。
+-- API 與前端也已同步擋在 1000 字。
+-- 每個欄位分三種情況：
+--   已經是 varchar(1000)        → 略過
+--   既有資料有超過 1000 字的列  → 略過並列出筆數（嚴格模式下 MODIFY 會失敗，不能中途中斷）
+--                                  請先人工處理那幾筆，再重跑本腳本
+--   其餘                        → MODIFY
+SET @sql = (SELECT IF(
+  (SELECT COLUMN_TYPE FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'Categories' AND COLUMN_NAME = 'description') = 'varchar(1000)',
+  'SELECT ''7-1a. Categories.description 已是 VARCHAR(1000)，略過'' AS step',
+  IF((SELECT COUNT(*) FROM Categories WHERE CHAR_LENGTH(description) > 1000) > 0,
+     CONCAT('SELECT ''⚠️ 7-1a. Categories.description 有 ',
+            (SELECT COUNT(*) FROM Categories WHERE CHAR_LENGTH(description) > 1000),
+            ' 筆超過 1000 字，未修改'' AS step'),
+     'ALTER TABLE Categories MODIFY COLUMN description VARCHAR(1000)')));
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+
+SET @sql = (SELECT IF(
+  (SELECT COLUMN_TYPE FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'Products' AND COLUMN_NAME = 'description') = 'varchar(1000)',
+  'SELECT ''7-1b. Products.description 已是 VARCHAR(1000)，略過'' AS step',
+  IF((SELECT COUNT(*) FROM Products WHERE CHAR_LENGTH(description) > 1000) > 0,
+     CONCAT('SELECT ''⚠️ 7-1b. Products.description 有 ',
+            (SELECT COUNT(*) FROM Products WHERE CHAR_LENGTH(description) > 1000),
+            ' 筆超過 1000 字，未修改'' AS step'),
+     'ALTER TABLE Products MODIFY COLUMN description VARCHAR(1000)')));
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+
+SET @sql = (SELECT IF(
+  (SELECT COLUMN_TYPE FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'Reviews' AND COLUMN_NAME = 'comment') = 'varchar(1000)',
+  'SELECT ''7-1c. Reviews.comment 已是 VARCHAR(1000)，略過'' AS step',
+  IF((SELECT COUNT(*) FROM Reviews WHERE CHAR_LENGTH(comment) > 1000) > 0,
+     CONCAT('SELECT ''⚠️ 7-1c. Reviews.comment 有 ',
+            (SELECT COUNT(*) FROM Reviews WHERE CHAR_LENGTH(comment) > 1000),
+            ' 筆超過 1000 字，未修改'' AS step'),
+     'ALTER TABLE Reviews MODIFY COLUMN comment VARCHAR(1000)')));
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+
+SET @sql = (SELECT IF(
+  (SELECT COLUMN_TYPE FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'Messages' AND COLUMN_NAME = 'message_text') = 'varchar(1000)',
+  'SELECT ''7-1d. Messages.message_text 已是 VARCHAR(1000)，略過'' AS step',
+  IF((SELECT COUNT(*) FROM Messages WHERE CHAR_LENGTH(message_text) > 1000) > 0,
+     CONCAT('SELECT ''⚠️ 7-1d. Messages.message_text 有 ',
+            (SELECT COUNT(*) FROM Messages WHERE CHAR_LENGTH(message_text) > 1000),
+            ' 筆超過 1000 字，未修改'' AS step'),
+     'ALTER TABLE Messages MODIFY COLUMN message_text VARCHAR(1000) NOT NULL')));
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+SELECT '7-1. TEXT → VARCHAR(1000) 完成' AS step;
+
+-- ------------------------------------------------------------------------------
 -- 8. 建立一個 manager 帳號
 -- ------------------------------------------------------------------------------
 -- 密碼：manager123（正式環境請立刻改掉）
@@ -258,4 +313,8 @@ SHOW COLUMNS FROM Users LIKE 'status';
 SHOW COLUMNS FROM Orders LIKE 'status';
 SHOW COLUMNS FROM Chat_Rooms LIKE 'manager_id';
 SHOW TABLES LIKE 'Revoked_Tokens';
+SELECT TABLE_NAME, COLUMN_NAME, COLUMN_TYPE FROM information_schema.COLUMNS
+ WHERE TABLE_SCHEMA = DATABASE()
+   AND (TABLE_NAME, COLUMN_NAME) IN (('Categories','description'), ('Products','description'),
+                                     ('Reviews','comment'), ('Messages','message_text'));
 SELECT role, COUNT(*) AS 人數 FROM Users GROUP BY role;

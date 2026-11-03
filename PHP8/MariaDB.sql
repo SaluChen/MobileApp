@@ -35,7 +35,7 @@ CREATE TABLE Users (
 CREATE TABLE Categories (
     category_id INT AUTO_INCREMENT PRIMARY KEY,
     category_name VARCHAR(50) NOT NULL,
-    description TEXT
+    description VARCHAR(1000)
 );
 
 -- 3. Products (商品主表 - 已內建主鍵聚簇索引)
@@ -43,7 +43,7 @@ CREATE TABLE Products (
     product_id INT AUTO_INCREMENT PRIMARY KEY,
     category_id INT,
     name VARCHAR(100) NOT NULL,
-    description TEXT,
+    description VARCHAR(1000),
     price DECIMAL(10, 2) NOT NULL,
     stock_quantity INT NOT NULL,
     image_url VARCHAR(255),
@@ -122,7 +122,7 @@ CREATE TABLE Reviews (
     product_id INT,
     user_id INT,
     rating INT CHECK (rating BETWEEN 1 AND 5),
-    comment TEXT,
+    comment VARCHAR(1000),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (product_id) REFERENCES Products(product_id) ON DELETE CASCADE,
     FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE
@@ -148,7 +148,7 @@ CREATE TABLE Messages (
     message_id INT AUTO_INCREMENT PRIMARY KEY,
     room_id INT,
     sender_id INT,
-    message_text TEXT NOT NULL,
+    message_text VARCHAR(1000) NOT NULL,
     is_read BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (room_id) REFERENCES Chat_Rooms(room_id) ON DELETE CASCADE,
@@ -194,22 +194,22 @@ CREATE INDEX idx_revoked_expires ON Revoked_Tokens(expires_at);
 -- ==============================================================================
 -- 密碼：admin123
 INSERT INTO Users (email, password_hash, full_name, role) VALUES
-  ('admin@shop.com',   '$2y$10$Xfa7lksQhZ9k6/cXxqs0AuD3wgiYn92CruOMtsS0gj47m7LLtL4J.', '系統管理員', 'admin');
+  ('admin@shop.net.tw',   '$2y$10$Xfa7lksQhZ9k6/cXxqs0AuD3wgiYn92CruOMtsS0gj47m7LLtL4J.', '系統管理員', 'admin');
 -- 密碼：manager123
 INSERT INTO Users (email, password_hash, full_name, role) VALUES
-  ('manager@shop.com', '$2y$10$Ou0.ougANOkjgsVCt68q6OmW9m0t5Zd0qJFOhJTtr63b2tJuOYEVC', '客服主管 林經理', 'manager');
+  ('manager@shop.net.tw', '$2y$10$Ou0.ougANOkjgsVCt68q6OmW9m0t5Zd0qJFOhJTtr63b2tJuOYEVC', '客服主管 林經理', 'manager');
 -- 密碼：customer123
 INSERT INTO Users (email, password_hash, full_name, role) VALUES
-  ('customer@shop.com','$2y$10$/OGbJbRzVxGr21YLR6SMqOhlB5Tnqz5YaLQTiFRu.21QAKD5P3saS', '王小明', 'customer');
+  ('customer@shop.net.tw','$2y$10$/OGbJbRzVxGr21YLR6SMqOhlB5Tnqz5YaLQTiFRu.21QAKD5P3saS', '王小明', 'customer');
 -- 密碼：finance123
 INSERT INTO Users (email, password_hash, full_name, role) VALUES
-  ('finance@shop.com','$2y$10$YYt2BQeahB6V0ggKm2fmJOJdEsEJNlPYOzyTw/vxeyQlY5YBF0oOO', '財務 陳會計', 'finance');
+  ('finance@shop.net.tw','$2y$10$YYt2BQeahB6V0ggKm2fmJOJdEsEJNlPYOzyTw/vxeyQlY5YBF0oOO', '財務 陳會計', 'finance');
 -- 密碼：warehouse123
 INSERT INTO Users (email, password_hash, full_name, role) VALUES
-  ('warehouse@shop.com','$2y$10$LlJfOyY8Z9A5QYTA2jjaJeyZT7NfJmYxM07sGWiUKIo8WZqIVPxvW', '倉管 張倉儲', 'warehouse');
+  ('warehouse@shop.net.tw','$2y$10$LlJfOyY8Z9A5QYTA2jjaJeyZT7NfJmYxM07sGWiUKIo8WZqIVPxvW', '倉管 張倉儲', 'warehouse');
 -- 密碼：logistics123
 INSERT INTO Users (email, password_hash, full_name, role) VALUES
-  ('logistics@shop.com','$2y$10$KRlOBvgltQRofV1sbpA78.BFuPjPkCFA7L/145mW.OksyhxYUP2qe', '物流 李配送', 'logistics');
+  ('logistics@shop.net.tw','$2y$10$KRlOBvgltQRofV1sbpA78.BFuPjPkCFA7L/145mW.OksyhxYUP2qe', '物流 李配送', 'logistics');
 
 INSERT INTO Categories (category_name, description) VALUES
   ('3C電子', '智慧型手機與周邊配件'),

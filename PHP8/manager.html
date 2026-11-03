@@ -53,6 +53,7 @@
         <a data-tab="tab-users"      onclick="BO.switchTab('tab-users')">👥 會員帳戶清單</a>
         <a data-tab="tab-chat"       onclick="BO.switchTab('tab-chat')">💬 客服即時通訊中心</a>
 
+        <a href="dashboard.html">📊 銷售分析 Dashboard</a>
         <a class="logout" onclick="BO.logout()">登出</a>
     </div>
 
@@ -90,7 +91,7 @@
                     </div>
                     <div class="form-group">
                         <label for="pDesc">商品簡介</label>
-                        <textarea id="pDesc"></textarea>
+                        <textarea id="pDesc" maxlength="1000"></textarea>
                     </div>
                     <div class="btn-row">
                         <button type="submit" id="productSubmitBtn">確認上架</button>
@@ -125,7 +126,7 @@
                         </div>
                         <div class="form-group">
                             <label for="cDesc">分類說明</label>
-                            <input type="text" id="cDesc">
+                            <input type="text" id="cDesc" maxlength="1000">
                         </div>
                     </div>
                     <div class="btn-row">
@@ -205,7 +206,7 @@
                             <p class="empty">請從左側挑一間聊天室開始對話</p>
                         </div>
                         <div class="chat-input">
-                            <input type="text" id="chatInput" placeholder="請輸入回覆訊息..." disabled>
+                            <input type="text" id="chatInput" placeholder="請輸入回覆訊息..." maxlength="1000" disabled>
                             <button id="chatSendBtn" onclick="BO.sendMessage()" disabled>發送</button>
                         </div>
                     </div>

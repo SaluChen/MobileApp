@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>📊 跨平台商務系統 — 銷售分析 Dashboard</title>
+    <link rel="stylesheet" href="backoffice.css">
+    <style>
+        /* 🛡️ 關鍵可見性規則內嵌（同其他後台頁）：backoffice.css 沒載入時也不會在未登入狀態露出畫面 */
+        #app { display: none; }
+        #app.ready { display: block; }
+
+        /* ---------- 圖表色票（已用 dataviz 驗證器檢查色盲辨識度） ---------- */
+        .dash {
+            --surface: #ffffff;
+            --ink: #2c3e50;
+            --ink-2: #52514e;
+            --muted: #898781;
+            --grid: #e9e8e3;
+            --axis: #c3c2b7;
+            --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a;
+            --s4: #eda100; --s5: #e87ba4; --s6: #008300;
+            --other: #b4b2a9;
+        }
+
+        /* 分析模式切換 */
+        .mode-tabs { display: inline-flex; border: 1px solid #d5dbdf; border-radius: 6px; overflow: hidden; }
+        .mode-tabs button { background: #fff; color: #2c3e50; border: 0; border-radius: 0; padding: 8px 16px; font-weight: normal; border-right: 1px solid #d5dbdf; }
+        .mode-tabs button:last-child { border-right: 0; }
+        .mode-tabs button:hover { background: #f2f4f5; }
+        .mode-tabs button.on { background: #2c3e50; color: #fff; font-weight: bold; }
+
+        .filters { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: flex-end; margin-top: 14px; }
+        .filters .f { display: flex; flex-direction: column; gap: 4px; }
+        .filters label { font-size: 12px; color: #7f8c8d; font-weight: bold; margin: 0; }
+        .filters select, .filters input { width: auto; min-width: 120px; padding: 6px 8px; }
+        .presets { display: flex; gap: 6px; flex-wrap: wrap; }
+        .presets button { background: #ecf0f1; color: #2c3e50; font-weight: normal; padding: 6px 10px; font-size: 12px; }
+        .presets button:hover { background: #d6dbdf; }
+        .range-note { font-size: 12px; color: #7f8c8d; margin-top: 10px; }
+
+        /* KPI */
+        .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; margin-bottom: 20px; }
+        .kpi { background: #fff; border-radius: 8px; padding: 14px 16px; box-shadow: 0 4px 10px rgba(0,0,0,.05); }
+        .kpi .l { font-size: 12px; color: #7f8c8d; }
+        .kpi .v { font-size: 22px; font-weight: 600; margin-top: 4px; color: #2c3e50; }
+        .kpi .s { font-size: 11px; color: #95a5a6; margin-top: 2px; }
+        .kpi.hero .v { font-size: 30px; }
+
+        .charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 20px; }
+        .charts .panel { margin-bottom: 0; min-width: 0; }
+        .charts .wide { grid-column: 1 / -1; }
+        .card-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+        .card-head h2 { margin: 0; font-size: 16px; }
+        .card-head .sub { font-size: 12px; color: #7f8c8d; }
+        .card-head select { width: auto; padding: 4px 8px; font-size: 13px; }
+        .chart { position: relative; width: 100%; }
+        .chart svg { display: block; width: 100%; overflow: visible; }
+        .chart text { font-family: inherit; }
+        .loading .chart, .loading .kpis, .loading table { opacity: .45; transition: opacity .15s; }
+
+        /* 圖例 */
+        .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--ink-2); margin-bottom: 6px; }
+        .legend .k { display: inline-block; width: 14px; height: 2px; vertical-align: middle; margin-right: 6px; border-radius: 1px; }
+
+        /* 圓餅圖 */
+        .pie-wrap { display: flex; gap: 18px; align-items: center; flex-wrap: wrap; }
+        .pie-wrap .chart { width: 220px; flex: 0 0 220px; }
+        .pie-legend { flex: 1 1 200px; font-size: 13px; border-collapse: collapse; }
+        .pie-legend td { padding: 5px 4px; border-bottom: 1px solid #f0f0ee; }
+        .pie-legend td.n { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+        .pie-legend td.p { text-align: right; color: var(--muted); width: 54px; font-variant-numeric: tabular-nums; }
+        .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 8px; vertical-align: -1px; }
+
+        /* 提示框 */
+        .tip { position: fixed; pointer-events: none; z-index: 999; background: #fff; border: 1px solid rgba(11,11,11,.12);
+               box-shadow: 0 6px 18px rgba(0,0,0,.12); border-radius: 6px; padding: 8px 10px; font-size: 12px; color: #52514e;
+               min-width: 130px; display: none; }
+        .tip .t { font-weight: bold; color: #2c3e50; margin-bottom: 4px; }
+        .tip .r { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
+        .tip .r b { color: #0b0b0b; font-variant-numeric: tabular-nums; }
+        .tip .lk { display: inline-block; width: 12px; height: 2px; margin-right: 6px; vertical-align: middle; }
+
+        table.num td.n, table.num th.n { text-align: right; font-variant-numeric: tabular-nums; }
+        .empty-chart { padding: 50px 0; text-align: center; color: #95a5a6; font-size: 13px; }
+
+        @media (max-width: 768px) {
+            .charts { grid-template-columns: 1fr; }
+            .pie-wrap .chart { margin: 0 auto; }
+        }
+    </style>
+</head>
+<body>
+
+<!-- ==========================================================================
+     銷售分析 Dashboard（manager / admin / finance）
+     -------------------------------------------------------------------------
+     五種分析：年、季、月、日、自訂區間。每種都有 KPI、長條圖、曲線圖、圓餅圖、明細表。
+     資料來自 staff-dashboard 端點；「銷售」= 未取消的訂單。
+     ⚠️ 介面層的角色判斷只是「不要讓看不懂的畫面出現」，真正的把關在 API（403）。
+     ========================================================================== -->
+<div class="gate" id="checking">
+    <div class="gate-card" style="text-align:center;">
+        <h1>📊 銷售分析</h1>
+        <div class="sub">正在確認登入狀態...</div>
+    </div>
+</div>
+
+<div class="app dash" id="app">
+    <div class="sidebar">
+        <div class="brand">📊 銷售分析 Dashboard</div>
+        <div class="whoami" id="whoami"></div>
+        <a class="active">📊 銷售分析</a>
+        <a id="backLink" href="login.html">↩ 返回後台</a>
+        <a class="logout" onclick="DASH.logout()">登出</a>
+    </div>
+
+    <div class="main-content" id="main">
+        <div class="panel">
+            <div class="card-head">
+                <h2>銷售分析</h2>
+                <span class="sub">銷售 = 期間內成立且未取消的訂單</span>
+            </div>
+            <div class="mode-tabs" id="modeTabs">
+                <button data-mode="year">年銷售</button>
+                <button data-mode="quarter">季銷售</button>
+                <button data-mode="month">月銷售</button>
+                <button data-mode="day">日銷售</button>
+                <button data-mode="range">區間銷售</button>
+            </div>
+
+            <div class="filters">
+                <div class="f" data-for="year"><label for="fYearFrom">起始年</label><select id="fYearFrom"></select></div>
+                <div class="f" data-for="year"><label for="fYearTo">結束年</label><select id="fYearTo"></select></div>
+                <div class="f" data-for="quarter month"><label for="fYear">年度</label><select id="fYear"></select></div>
+                <div class="f" data-for="day"><label for="fMonth">月份</label><input type="month" id="fMonth"></div>
+                <div class="f" data-for="range"><label for="fFrom">起始日</label><input type="date" id="fFrom"></div>
+                <div class="f" data-for="range"><label for="fTo">結束日</label><input type="date" id="fTo"></div>
+                <div class="f" data-for="range">
+                    <label for="fGroup">統計單位</label>
+                    <select id="fGroup">
+                        <option value="auto">自動</option>
+                        <option value="day">日</option>
+                        <option value="month">月</option>
+                        <option value="quarter">季</option>
+                        <option value="year">年</option>
+                    </select>
+                </div>
+                <div class="f" data-for="range">
+                    <label>快速選擇</label>
+                    <div class="presets">
+                        <button data-preset="7">近 7 天</button>
+                        <button data-preset="30">近 30 天</button>
+                        <button data-preset="90">近 90 天</button>
+                        <button data-preset="mtd">本月</button>
+                        <button data-preset="ytd">今年</button>
+                    </div>
+                </div>
+            </div>
+            <div class="range-note" id="rangeNote"></div>
+            <div id="dashMsg" style="margin-top:10px;"></div>
+        </div>
+
+        <div id="content">
+            <div class="kpis" id="kpis"></div>
+
+            <div class="charts">
+                <div class="panel wide">
+                    <div class="card-head"><h2>銷售額</h2><span class="sub" id="barSub">長條圖</span></div>
+                    <div class="chart" id="barChart"></div>
+                </div>
+
+                <div class="panel wide">
+                    <div class="card-head"><h2>訂單數與銷售件數</h2><span class="sub">曲線圖</span></div>
+                    <div class="legend" id="lineLegend"></div>
+                    <div class="chart" id="lineChart"></div>
+                </div>
+
+                <div class="panel">
+                    <div class="card-head">
+                        <h2>銷售額占比</h2>
+                        <select id="pieDim" aria-label="圓餅圖分組">
+                            <option value="period">依期間</option>
+                            <option value="category">依商品分類</option>
+                            <option value="payment">依支付方式</option>
+                        </select>
+                    </div>
+                    <div class="pie-wrap">
+                        <div class="chart" id="pieChart"></div>
+                        <table class="pie-legend" id="pieLegend"></table>
+                    </div>
+                    <p class="hint" id="pieNote"></p>
+                </div>
+
+                <div class="panel">
+                    <div class="card-head"><h2>熱銷商品 Top 10</h2><span class="sub">依銷售額</span></div>
+                    <table class="num" id="topTable">
+                        <thead><tr><th>#</th><th>商品</th><th class="n">件數</th><th class="n">銷售額</th></tr></thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+
+                <div class="panel wide">
+                    <div class="card-head"><h2>期間明細</h2><span class="sub">圖表的完整數值</span></div>
+                    <table class="num" id="periodTable">
+                        <thead><tr><th>期間</th><th class="n">訂單數</th><th class="n">銷售件數</th><th class="n">銷售額</th><th class="n">平均客單價</th></tr></thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="tip" id="tip"></div>
+
+<script src="dashboard.js"></script>
+<script>
+    if (!window.DASH) {
+        document.getElementById('checking').innerHTML =
+            '<div class="gate-card"><div class="gate-error">' +
+            '⚠️ dashboard.js 沒有正確載入，本頁無法運作。<br><br>' +
+            '請確認 dashboard.js 與本頁在同一個目錄，並按 Ctrl+F5 清一次快取。' +
+            '</div><p><a href="login.html">返回登入頁</a></p></div>';
+    }
+</script>
+</body>
+</html>

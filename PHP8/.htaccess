@@ -1,0 +1,6 @@
+# 禁止下載設定檔、SQL、說明文件與備份（見《系統安裝手冊（PHP 版）》4.5 節）
+<FilesMatch "\.(ini|sql|md|bak|bak2|log)$">
+    Require all denied
+</FilesMatch>
+# 部分 Apache（CGI / FastCGI）會吃掉 Authorization 標頭，把它轉給 PHP
+SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1

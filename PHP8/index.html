@@ -171,7 +171,7 @@
                     <p class="muted" style="font-size:11px;" id="chatRoomHint"></p>
                     <div class="chat-area" id="chatArea"></div>
                     <div class="btn-row">
-                        <input type="text" id="chatInput" style="flex:1;" placeholder="輸入訊息...">
+                        <input type="text" id="chatInput" style="flex:1;" placeholder="輸入訊息..." maxlength="1000">
                         <button onclick="Shop.sendMessage()">送出</button>
                     </div>
                 </div>
@@ -424,7 +424,7 @@
             }).join('') || '<div class="muted">暫無評價，搶先留言！</div>';
             box.innerHTML = list +
                 '<div class="btn-row" style="margin-top:6px;">' +
-                '<input type="text" id="newRev-' + pid + '" placeholder="寫下你的評價..." style="flex:1;">' +
+                '<input type="text" id="newRev-' + pid + '" placeholder="寫下你的評價..." maxlength="1000" style="flex:1;">' +
                 '<button class="small" onclick="Shop.postReview(' + pid + ')">發表</button></div>';
         } catch (e) {
             box.innerHTML = '<span class="muted">' + esc(e.message) + '</span>';
